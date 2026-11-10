@@ -26,8 +26,8 @@ OquLens — веб-платформа для методистов: по резу
 Next.js 15, React 19, TypeScript, Tailwind CSS 4, собственная статистическая библиотека (МНК, кластерно-устойчивые ошибки, ICC), Claude API.
 
 ## Ссылки
-- MVP: [ссылка после деплоя]
-- Репозиторий: [ссылка на GitHub]
+- MVP: https://oqulens.vercel.app
+- Репозиторий: https://github.com/ikooq/oqulens
 - Презентация: [ссылка или файл PDF/PPTX]
 
 ## Команда
@@ -37,8 +37,10 @@ Next.js 15, React 19, TypeScript, Tailwind CSS 4, собственная ста�
 
 ## Чек-лист до 11.11.2026, 23:59
 - [ ] Зарегистрироваться в приложении Astana Hub
-- [ ] Залить код на GitHub (публичный репозиторий)
-- [ ] Задеплоить на Vercel (по желанию добавить ANTHROPIC_API_KEY для ИИ-записки)
+- [x] Залить код на GitHub — https://github.com/ikooq/oqulens
+- [ ] Сделать репозиторий публичным, чтобы жюри могло его открыть: `gh repo edit ikooq/oqulens --visibility public --accept-visibility-change-consequences`
+- [x] Задеплоить на Vercel — https://oqulens.vercel.app
+- [ ] По желанию: добавить ANTHROPIC_API_KEY в Vercel (Project → Settings → Environment Variables) и сделать Redeploy, чтобы заработала ИИ-записка
 - [ ] Вписать ссылки и имя в презентацию (слайды 1 и 12) и в эту заявку
 - [ ] Скачать презентацию в PDF/PPTX
 - [ ] Отправить форму: https://forms.gle/cxKZ5t7cWio1H2nq5
