@@ -45,6 +45,20 @@ input[type="range"] {
 .no-scrollbar {
   scrollbar-width: none;
 }
+/* Экскурсия по демо: подсветка текущего блока и затемнение остального */
+.tour-focus:not(.fixed) {
+  position: relative;
+}
+.tour-focus {
+  z-index: 45;
+  border-radius: 18px;
+  box-shadow:
+    0 0 0 8px #f4f6f9,
+    0 0 0 12px #0f8a6c;
+}
+.tour-focus:not([class*="bg-"]) {
+  background-color: #f4f6f9;
+}
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }

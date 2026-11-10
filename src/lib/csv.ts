@@ -1,23 +1,32 @@
-// Импорт/экспорт CSV. Принимает заголовки на английском или русском.
+// Импорт/экспорт CSV. Принимает заголовки на английском, русском или казахском.
 import Papa from "papaparse";
 import { DataQuality, Dataset, Row } from "./types";
-import { nClasses, nSchools, nSections, nStudents } from "./format";
+import { makeFmt } from "./format";
+import { Lang, tr } from "./i18n";
 
-export const COLUMNS: { key: keyof Row; csv: string; ru: string; required: boolean; hint: string }[] = [
-  { key: "district", csv: "district", ru: "район", required: false, hint: "Район / город" },
-  { key: "school", csv: "school", ru: "школа", required: true, hint: "Название или код школы" },
-  { key: "locality", csv: "locality", ru: "местность", required: false, hint: "город / село" },
-  { key: "language", csv: "language", ru: "язык", required: false, hint: "каз / рус" },
-  { key: "classId", csv: "class_id", ru: "класс", required: true, hint: "Уникальный код класса" },
-  { key: "studentId", csv: "student_id", ru: "ученик", required: true, hint: "Обезличенный ID ученика" },
-  { key: "textbook", csv: "textbook", ru: "учебник", required: true, hint: "Учебник, по которому учится класс" },
-  { key: "section", csv: "section", ru: "раздел", required: true, hint: "Раздел учебной программы (СОР)" },
-  { key: "sectionOrder", csv: "section_order", ru: "номер_раздела", required: false, hint: "Порядковый номер раздела" },
-  { key: "plannedHours", csv: "planned_hours", ru: "часы_план", required: false, hint: "Часы по долгосрочному плану" },
-  { key: "actualHours", csv: "actual_hours", ru: "часы_факт", required: false, hint: "Фактически проведено часов" },
-  { key: "score", csv: "score", ru: "балл", required: true, hint: "Балл за СОР" },
-  { key: "maxScore", csv: "max_score", ru: "макс_балл", required: true, hint: "Максимальный балл СОР" },
-  { key: "baselinePct", csv: "baseline_pct", ru: "стартовый_уровень", required: false, hint: "Итог прошлого года, %" },
+export const COLUMNS: {
+  key: keyof Row;
+  csv: string;
+  ru: string;
+  kk: string;
+  required: boolean;
+  hint: string;
+  hintKk: string;
+}[] = [
+  { key: "district", csv: "district", ru: "район", kk: "аудан", required: false, hint: "Район / город", hintKk: "Аудан / қала" },
+  { key: "school", csv: "school", ru: "школа", kk: "мектеп", required: true, hint: "Название или код школы", hintKk: "Мектептің атауы немесе коды" },
+  { key: "locality", csv: "locality", ru: "местность", kk: "елді_мекен", required: false, hint: "город / село", hintKk: "қала / ауыл" },
+  { key: "language", csv: "language", ru: "язык", kk: "тіл", required: false, hint: "каз / рус", hintKk: "қаз / орыс" },
+  { key: "classId", csv: "class_id", ru: "класс", kk: "сынып", required: true, hint: "Уникальный код класса", hintKk: "Сыныптың бірегей коды" },
+  { key: "studentId", csv: "student_id", ru: "ученик", kk: "оқушы", required: true, hint: "Обезличенный ID ученика", hintKk: "Оқушының иесіздендірілген ID-і" },
+  { key: "textbook", csv: "textbook", ru: "учебник", kk: "оқулық", required: true, hint: "Учебник, по которому учится класс", hintKk: "Сынып оқитын оқулық" },
+  { key: "section", csv: "section", ru: "раздел", kk: "бөлім", required: true, hint: "Раздел учебной программы (СОР)", hintKk: "Оқу бағдарламасының бөлімі (БЖБ)" },
+  { key: "sectionOrder", csv: "section_order", ru: "номер_раздела", kk: "бөлім_нөмірі", required: false, hint: "Порядковый номер раздела", hintKk: "Бөлімнің реттік нөмірі" },
+  { key: "plannedHours", csv: "planned_hours", ru: "часы_план", kk: "сағат_жоспар", required: false, hint: "Часы по долгосрочному плану", hintKk: "Ұзақ мерзімді жоспар бойынша сағат" },
+  { key: "actualHours", csv: "actual_hours", ru: "часы_факт", kk: "сағат_нақты", required: false, hint: "Фактически проведено часов", hintKk: "Нақты өткізілген сағат" },
+  { key: "score", csv: "score", ru: "балл", kk: "балл", required: true, hint: "Балл за СОР", hintKk: "БЖБ балы" },
+  { key: "maxScore", csv: "max_score", ru: "макс_балл", kk: "макс_балл", required: true, hint: "Максимальный балл СОР", hintKk: "БЖБ-ның ең жоғары балы" },
+  { key: "baselinePct", csv: "baseline_pct", ru: "стартовый_уровень", kk: "бастапқы_деңгей", required: false, hint: "Итог прошлого года, %", hintKk: "Өткен жылдың қорытындысы, %" },
 ];
 
 const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, "_").replace(/ё/g, "е");
@@ -28,28 +37,34 @@ export interface ParseResult {
   warnings: string[];
 }
 
-export function parseCsv(text: string, fileName: string): ParseResult {
+export function parseCsv(text: string, fileName: string, lang: Lang = "ru"): ParseResult {
   const parsed = Papa.parse<Record<string, string>>(text.replace(/^﻿/, ""), {
     header: true,
     skipEmptyLines: true,
     delimitersToGuess: [",", ";", "\t"],
   });
-  return parseRecords(parsed.data, parsed.meta.fields ?? [], fileName.replace(/\.csv$/i, ""));
+  return parseRecords(parsed.data, parsed.meta.fields ?? [], fileName.replace(/\.csv$/i, ""), lang);
 }
 
 /** Общий разбор таблицы (из CSV или Excel): поиск столбцов, проверка и отчёт о качестве данных. */
-export function parseRecords(data: Record<string, string>[], fields: string[], name: string): ParseResult {
+export function parseRecords(data: Record<string, string>[], fields: string[], name: string, lang: Lang = "ru"): ParseResult {
+  const t = (ru: string, kk: string) => tr(lang, ru, kk);
   const errors: string[] = [];
   const warnings: string[] = [];
   const headers = fields.map((h) => [h, norm(h)] as const);
   const colOf = new Map<keyof Row, string>();
   for (const c of COLUMNS) {
-    const hit = headers.find(([, n]) => n === norm(c.csv) || n === norm(c.ru));
+    const hit = headers.find(([, n]) => n === norm(c.csv) || n === norm(c.ru) || n === norm(c.kk));
     if (hit) colOf.set(c.key, hit[0]);
-    else if (c.required) errors.push(`Нет обязательного столбца «${c.csv}» (или «${c.ru}»).`);
+    else if (c.required)
+      errors.push(
+        t(`Нет обязательного столбца «${c.ru}» (или «${c.csv}»).`, `Міндетті «${c.kk}» бағаны жоқ (немесе «${c.csv}»).`),
+      );
   }
   if (errors.length) return { errors, warnings };
-  for (const c of COLUMNS) if (!c.required && !colOf.has(c.key)) warnings.push(`Столбец «${c.csv}» не найден — часть анализа будет ограничена.`);
+  for (const c of COLUMNS)
+    if (!c.required && !colOf.has(c.key))
+      warnings.push(t(`Столбец «${c.ru}» не найден — часть анализа будет ограничена.`, `«${c.kk}» бағаны табылмады — талдаудың бір бөлігі шектеледі.`));
 
   const num = (v: string | undefined) => {
     if (v === undefined || v === "") return NaN;
@@ -86,7 +101,7 @@ export function parseRecords(data: Record<string, string>[], fields: string[], n
     if (score < 0 || score > maxScore) clamped++;
     if (!sectionOrderSeen.has(section)) sectionOrderSeen.set(section, sectionOrderSeen.size + 1);
     const loc = norm(get(r, "locality"));
-    const lang = norm(get(r, "language"));
+    const lng = norm(get(r, "language"));
     const planned = num(get(r, "plannedHours"));
     const actual = num(get(r, "actualHours"));
     const order = num(get(r, "sectionOrder"));
@@ -96,8 +111,8 @@ export function parseRecords(data: Record<string, string>[], fields: string[], n
     rows.push({
       district: get(r, "district") || "—",
       school: get(r, "school"),
-      locality: loc.startsWith("сел") || loc.startsWith("rur") || loc.startsWith("аул") ? "село" : "город",
-      language: lang.startsWith("рус") || lang.startsWith("ru") ? "рус" : "каз",
+      locality: loc.startsWith("сел") || loc.startsWith("rur") || loc.startsWith("аул") || loc.startsWith("ауыл") ? "село" : "город",
+      language: lng.startsWith("рус") || lng.startsWith("ru") || lng.startsWith("орыс") ? "рус" : "каз",
       classId: get(r, "classId"),
       studentId: get(r, "studentId"),
       textbook: get(r, "textbook") || "—",
@@ -110,14 +125,15 @@ export function parseRecords(data: Record<string, string>[], fields: string[], n
       baselinePct: Number.isFinite(baseline) ? baseline : 50,
     });
   }
-  if (bad) warnings.push(`Пропущено строк с некорректным баллом или разделом: ${bad}.`);
-  if (rows.length === 0) errors.push("В файле нет ни одной корректной строки.");
+  if (bad) warnings.push(t(`Пропущено строк с некорректным баллом или разделом: ${bad}.`, `Балы немесе бөлімі қате жолдар өткізілді: ${bad}.`));
+  if (rows.length === 0) errors.push(t("В файле нет ни одной корректной строки.", "Файлда бірде-бір дұрыс жол жоқ."));
   const sectionsCount = new Set(rows.map((r) => r.section)).size;
-  if (rows.length && sectionsCount < 2) warnings.push("Найден только один раздел — сравнение разделов недоступно.");
+  if (rows.length && sectionsCount < 2)
+    warnings.push(t("Найден только один раздел — сравнение разделов недоступно.", "Тек бір бөлім табылды — бөлімдерді салыстыру мүмкін емес."));
 
   const quality = errors.length
     ? undefined
-    : buildQuality(rows, { total: data.length, bad, noId, clamped, baselineMissing, hoursMissing, duplicates, colOf });
+    : buildQuality(rows, { total: data.length, bad, noId, clamped, baselineMissing, hoursMissing, duplicates, colOf }, lang);
 
   return {
     errors,
@@ -148,7 +164,10 @@ function buildQuality(
     duplicates: number;
     colOf: Map<keyof Row, string>;
   },
+  lang: Lang,
 ): DataQuality {
+  const t = (ru: string, kk: string) => tr(lang, ru, kk);
+  const f = makeFmt(lang);
   const checks: DataQuality["checks"] = [];
   const n = (x: number) => x.toLocaleString("ru-RU");
   const students = new Set(rows.map((r) => r.studentId)).size;
@@ -156,26 +175,74 @@ function buildQuality(
   const classes = new Set(rows.map((r) => r.classId)).size;
   const sections = new Set(rows.map((r) => r.section)).size;
   const textbooks = new Set(rows.map((r) => r.textbook)).size;
+  const counts = `${f.nStudents(students)}, ${f.nSchools(schools.size)}, ${f.nClasses(classes)}, ${f.nSections(sections)}`;
   checks.push({
     level: "ok",
-    text: `Прочитано ${n(rows.length)} из ${n(c.total)} строк: ${nStudents(students)}, ${nSchools(schools.size)}, ${nClasses(classes)}, ${nSections(sections)}.`,
+    text: t(`Прочитано ${n(rows.length)} из ${n(c.total)} строк: ${counts}.`, `${n(c.total)} жолдың ${n(rows.length)}-і оқылды: ${counts}.`),
   });
-  if (c.bad) checks.push({ level: "warn", text: `Пропущено строк без балла, максимального балла или раздела: ${n(c.bad)}.` });
-  if (c.noId) checks.push({ level: "warn", text: `Пропущено строк без ученика, класса или школы: ${n(c.noId)}.` });
+  if (c.bad)
+    checks.push({
+      level: "warn",
+      text: t(`Пропущено строк без балла, максимального балла или раздела: ${n(c.bad)}.`, `Балы, ең жоғары балы немесе бөлімі жоқ жолдар өткізілді: ${n(c.bad)}.`),
+    });
+  if (c.noId)
+    checks.push({
+      level: "warn",
+      text: t(`Пропущено строк без ученика, класса или школы: ${n(c.noId)}.`, `Оқушысы, сыныбы немесе мектебі жоқ жолдар өткізілді: ${n(c.noId)}.`),
+    });
   if (c.duplicates)
-    checks.push({ level: "warn", text: `Повторов (ученик дважды в одном разделе): ${n(c.duplicates)}. Учтена последняя запись.` });
-  if (c.clamped) checks.push({ level: "warn", text: `Баллов вне диапазона от 0 до максимума: ${n(c.clamped)}. Они приведены к границе.` });
+    checks.push({
+      level: "warn",
+      text: t(
+        `Повторов (ученик дважды в одном разделе): ${n(c.duplicates)}. Учтена последняя запись.`,
+        `Қайталанулар (бір оқушы бір бөлімде екі рет): ${n(c.duplicates)}. Соңғы жазба ескерілді.`,
+      ),
+    });
+  if (c.clamped)
+    checks.push({
+      level: "warn",
+      text: t(
+        `Баллов вне диапазона от 0 до максимума: ${n(c.clamped)}. Они приведены к границе.`,
+        `0-ден ең жоғары балға дейінгі ауқымнан тыс балдар: ${n(c.clamped)}. Олар шекке келтірілді.`,
+      ),
+    });
   if (!c.colOf.has("baselinePct"))
     checks.push({
       level: "warn",
-      text: "Нет стартового уровня учеников (итог прошлого года). Сравнение учебников и школ не сможет учесть разницу в подготовке учеников.",
+      text: t(
+        "Нет стартового уровня учеников (итог прошлого года). Сравнение учебников и школ не сможет учесть разницу в подготовке учеников.",
+        "Оқушылардың бастапқы деңгейі (өткен жылдың қорытындысы) жоқ. Оқулықтар мен мектептерді салыстыру оқушылар дайындығындағы айырмашылықты ескере алмайды.",
+      ),
     });
   else if (c.baselineMissing)
-    checks.push({ level: "warn", text: `Результатов без стартового уровня: ${n(c.baselineMissing)}. Для них подставлено 50%.` });
+    checks.push({
+      level: "warn",
+      text: t(
+        `Результатов без стартового уровня: ${n(c.baselineMissing)}. Для них подставлено 50%.`,
+        `Бастапқы деңгейі жоқ нәтижелер: ${n(c.baselineMissing)}. Оларға 50% қойылды.`,
+      ),
+    });
   if (!c.colOf.has("actualHours"))
-    checks.push({ level: "warn", text: "Нет фактических часов по классам — рекомендации по часам будут недоступны." });
-  else if (c.hoursMissing) checks.push({ level: "info", text: `Результатов без фактических часов: ${n(c.hoursMissing)}. Для них взяты часы по плану.` });
-  if (textbooks < 2) checks.push({ level: "info", text: "Во всех классах один учебник — сравнение учебников недоступно." });
+    checks.push({
+      level: "warn",
+      text: t(
+        "Нет фактических часов по классам — рекомендации по часам будут недоступны.",
+        "Сыныптар бойынша нақты сағаттар жоқ — сағат бойынша ұсыныстар қолжетімсіз болады.",
+      ),
+    });
+  else if (c.hoursMissing)
+    checks.push({
+      level: "info",
+      text: t(
+        `Результатов без фактических часов: ${n(c.hoursMissing)}. Для них взяты часы по плану.`,
+        `Нақты сағаты жоқ нәтижелер: ${n(c.hoursMissing)}. Оларға жоспардағы сағат алынды.`,
+      ),
+    });
+  if (textbooks < 2)
+    checks.push({
+      level: "info",
+      text: t("Во всех классах один учебник — сравнение учебников недоступно.", "Барлық сыныпта бір оқулық — оқулықтарды салыстыру мүмкін емес."),
+    });
   const perSchool = new Map<string, Set<string>>();
   for (const r of rows) {
     let s = perSchool.get(r.school);
@@ -186,20 +253,31 @@ function buildQuality(
   if (small)
     checks.push({
       level: "info",
-      text: `Меньше 10 учащихся: ${nSchools(small)}. Их оценки менее надёжны и осторожно сдвигаются к среднему.`,
+      text: t(
+        `Меньше 10 учащихся: ${f.nSchools(small)}. Их оценки менее надёжны и осторожно сдвигаются к среднему.`,
+        `10-нан аз оқушы: ${f.nSchools(small)}. Олардың бағалары сенімділігі төмен, сондықтан ортаға қарай сақтықпен жылжытылады.`,
+      ),
     });
-  if (checks.length === 1) checks.push({ level: "ok", text: "Пропусков, повторов и ошибок в баллах не найдено." });
+  if (checks.length === 1)
+    checks.push({ level: "ok", text: t("Пропусков, повторов и ошибок в баллах не найдено.", "Бос орындар, қайталанулар және балдағы қателер табылмады.") });
   return { checks };
 }
 
-/** Таблица для Excel: русские заголовки (их понимает и импорт). */
-export function toSheetRows(rows: Row[]): (string | number)[][] {
-  return [COLUMNS.map((c) => c.ru), ...rows.map((r) => COLUMNS.map((c) => r[c.key]))];
+/** Таблица для Excel: заголовки на языке интерфейса (их понимает и импорт). */
+export function toSheetRows(rows: Row[], lang: Lang = "ru"): (string | number)[][] {
+  const kk = lang === "kk";
+  const val = (r: Row, k: keyof Row) =>
+    kk && k === "locality" ? (r.locality === "село" ? "ауыл" : "қала") : kk && k === "language" ? (r.language === "рус" ? "орыс" : "қаз") : r[k];
+  return [COLUMNS.map((c) => (kk ? c.kk : c.ru)), ...rows.map((r) => COLUMNS.map((c) => val(r, c.key)))];
 }
 
 /** Описание столбцов для второго листа шаблона. */
-export function columnsHelpRows(): string[][] {
-  return [["Столбец", "Обязательный", "Что указать"], ...COLUMNS.map((c) => [c.ru, c.required ? "да" : "нет", c.hint])];
+export function columnsHelpRows(lang: Lang = "ru"): string[][] {
+  const kk = lang === "kk";
+  return [
+    kk ? ["Баған", "Міндетті", "Не көрсету керек"] : ["Столбец", "Обязательный", "Что указать"],
+    ...COLUMNS.map((c) => [kk ? c.kk : c.ru, c.required ? (kk ? "иә" : "да") : kk ? "жоқ" : "нет", kk ? c.hintKk : c.hint]),
+  ];
 }
 
 export function toCsv(rows: Row[]): string {

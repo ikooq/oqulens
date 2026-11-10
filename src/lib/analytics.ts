@@ -3,6 +3,8 @@
 
 import { Filters, Level, Row } from "./types";
 import { clamp, correlation, groupBy, icc, linCombVar, mean, ols, sd, variance } from "./stats";
+import { isRegionCenter } from "./generator";
+import { Lang, tr } from "./i18n";
 
 export const LEVEL_ORDER: Level[] = ["low", "mid", "good", "high"];
 export const LEVEL_LABEL: Record<Level, string> = {
@@ -11,6 +13,13 @@ export const LEVEL_LABEL: Record<Level, string> = {
   good: "Хороший (65–84%)",
   high: "Высокий (≥85%)",
 };
+const LEVEL_LABEL_KK: Record<Level, string> = {
+  low: "Төмен (<40%)",
+  mid: "Орташадан төмен (40–64%)",
+  good: "Жақсы (65–84%)",
+  high: "Жоғары (≥85%)",
+};
+export const levelLabel = (l: Level, lang: Lang) => (lang === "kk" ? LEVEL_LABEL_KK[l] : LEVEL_LABEL[l]);
 export const levelOf = (pct: number): Level =>
   pct < 40 ? "low" : pct < 65 ? "mid" : pct < 85 ? "good" : "high";
 
@@ -133,7 +142,10 @@ export interface HoursSection extends SectionInfo {
   gain: number; // ожидаемое изменение результата раздела с учётом пререквизитов, п.п.
   dependents: string[];
   reason: string;
+  reasonKk: string;
 }
+
+export const hoursReason = (h: HoursSection, lang: Lang) => (lang === "kk" ? h.reasonKk : h.reason);
 
 export interface HoursPlan {
   ok: boolean;
@@ -338,7 +350,7 @@ export function analyze(rows: Row[]): Analysis | null {
   const schoolDistrict = new Map(studentList.map((s) => [s.school, s.district]));
   const textbooks = [...new Set(studentList.map((s) => s.textbook))].sort((a, b) => a.localeCompare(b, "ru"));
   const districts = [...new Set(studentList.map((s) => s.district))].sort((a, b) =>
-    a === "г. Тараз" ? -1 : b === "г. Тараз" ? 1 : a.localeCompare(b, "ru"),
+    isRegionCenter(a) ? -1 : isRegionCenter(b) ? 1 : a.localeCompare(b, "ru"),
   );
 
   // ---- Общая картина
@@ -967,19 +979,37 @@ function planHours(
     const significant = Number.isFinite(e.se) && e.beta - Z * e.se > 0;
     const dependents = prereqs.filter((l) => l.from === sec.name).map((l) => l.to);
     const delta = hours[i] - sec.planned;
-    let reason: string;
-    if (!Number.isFinite(e.se)) reason = "Недостаточно данных о фактических часах — оставляем по плану.";
-    else if (delta > 0)
-      reason =
-        `Высокая отдача: +1 час ≈ +${fmt(perHour)} п.п. к результату раздела` +
-        (dependents.length ? `; раздел — фундамент для «${dependents.join("», «")}», эффект переносится дальше.` : ".");
-    else if (delta < 0)
-      reason = `Отдача от часов ниже (+1 час ≈ +${fmt(perHour)} п.п. против +${fmt(receiverPerHour)} п.п. у приоритетных разделов), раздел освоен на ${Math.round(
-        stats[i].mean,
-      )}% — часть часов можно передать.`;
-    else if (stats[i].mean < 55 && Number.isFinite(e.se))
-      reason = "Раздел в зоне риска — часы не сокращаем.";
-    else reason = significant ? "Часы влияют на результат, но перенос не даёт выигрыша — оставить как есть." : "Без изменений.";
+    const reasonIn = (lang: Lang) => {
+      const t = (ru: string, kk: string) => tr(lang, ru, kk);
+      const u = t("п.п.", "п.т.");
+      if (!Number.isFinite(e.se))
+        return t("Недостаточно данных о фактических часах — оставляем по плану.", "Нақты сағаттар туралы дерек жеткіліксіз — жоспар бойынша қалдырамыз.");
+      if (delta > 0)
+        return (
+          t(`Высокая отдача: +1 час ≈ +${fmt(perHour)} ${u} к результату раздела`, `Қайтарымы жоғары: +1 сағат ≈ бөлім нәтижесіне +${fmt(perHour)} ${u}`) +
+          (dependents.length
+            ? t(
+                `; раздел — фундамент для «${dependents.join("», «")}», эффект переносится дальше.`,
+                `; бөлім «${dependents.join("», «")}» үшін негіз, әсері әрі қарай беріледі.`,
+              )
+            : ".")
+        );
+      if (delta < 0)
+        return t(
+          `Отдача от часов ниже (+1 час ≈ +${fmt(perHour)} ${u} против +${fmt(receiverPerHour)} ${u} у приоритетных разделов), раздел освоен на ${Math.round(
+            stats[i].mean,
+          )}% — часть часов можно передать.`,
+          `Сағат қайтарымы төмен (+1 сағат ≈ +${fmt(perHour)} ${u}, басым бөлімдерде +${fmt(receiverPerHour)} ${u}), бөлім ${Math.round(
+            stats[i].mean,
+          )}%-ға меңгерілген — сағаттың бір бөлігін беруге болады.`,
+        );
+      if (stats[i].mean < 55) return t("Раздел в зоне риска — часы не сокращаем.", "Бөлім тәуекел аймағында — сағаттарды қысқартпаймыз.");
+      return significant
+        ? t("Часы влияют на результат, но перенос не даёт выигрыша — оставить как есть.", "Сағаттар нәтижеге әсер етеді, бірақ ауыстыру ұтыс бермейді — өзгеріссіз қалдыру.")
+        : t("Без изменений.", "Өзгеріссіз.");
+    };
+    const reason = reasonIn("ru");
+    const reasonKk = reasonIn("kk");
     return {
       ...sec,
       beta: e.beta,
@@ -993,6 +1023,7 @@ function planHours(
       gain: after.perSection[i],
       dependents,
       reason,
+      reasonKk,
     };
   });
 
@@ -1013,21 +1044,31 @@ function planHours(
 
 // ---------------------------------------------------------------- выводы
 
-function buildInsights(a: Analysis): Insight[] {
+export function buildInsights(a: Analysis, lang: Lang = "ru"): Insight[] {
   const out: Insight[] = [];
+  const t = (ru: string, kk: string) => tr(lang, ru, kk);
   const pct = (x: number) => `${Math.round(x)}%`;
   const share = (x: number) => `${Math.round(100 * x)}%`;
-  const pp = (x: number) => `${x >= 0 ? "+" : "−"}${Math.abs(x).toFixed(1).replace(".", ",")} п.п.`;
+  const u = t("п.п.", "п.т.");
+  const pp = (x: number) => `${x >= 0 ? "+" : "−"}${Math.abs(x).toFixed(1).replace(".", ",")} ${u}`;
 
   const hardest = [...a.sections].sort((x, y) => x.mean - y.mean)[0];
   if (hardest && hardest.status !== "ok") {
     out.push({
       tab: "sections",
       tone: "risk",
-      title: `Самый трудный раздел — «${hardest.name}»`,
-      text: `Средний результат ${pct(hardest.mean)}, у ${share(hardest.lowShare)} учащихся ниже 40%. ${
-        hardest.systemic ? "Проседает во всех школах — проблема системная (программа, учебник, часы), а не в отдельных учителях." : ""
-      }`,
+      title: t(`Самый трудный раздел — «${hardest.name}»`, `Ең қиын бөлім — «${hardest.name}»`),
+      text:
+        t(
+          `Средний результат ${pct(hardest.mean)}, у ${share(hardest.lowShare)} учащихся ниже 40%. `,
+          `Орташа нәтиже ${pct(hardest.mean)}, оқушылардың ${share(hardest.lowShare)}-ы 40%-дан төмен. `,
+        ) +
+        (hardest.systemic
+          ? t(
+              "Проседает во всех школах — проблема системная (программа, учебник, часы), а не в отдельных учителях.",
+              "Барлық мектепте төмен — мәселе жүйелі (бағдарлама, оқулық, сағаттар), жекелеген мұғалімдерде емес.",
+            )
+          : ""),
     });
   }
   const rootLink = a.prereqs
@@ -1037,10 +1078,15 @@ function buildInsights(a: Analysis): Insight[] {
     out.push({
       tab: "sections",
       tone: "info",
-      title: `Корень проблемы — «${rootLink.from}»`,
-      text: `Среди не освоивших «${rootLink.from}» ${share(rootLink.failIfWeak)} не справились и с «${rootLink.to}», среди освоивших — только ${share(
-        rootLink.failIfStrong,
-      )}. Начинать нужно с пререквизита.`,
+      title: t(`Корень проблемы — «${rootLink.from}»`, `Мәселенің түбірі — «${rootLink.from}»`),
+      text: t(
+        `Среди не освоивших «${rootLink.from}» ${share(rootLink.failIfWeak)} не справились и с «${rootLink.to}», среди освоивших — только ${share(
+          rootLink.failIfStrong,
+        )}. Начинать нужно с пререквизита.`,
+        `«${rootLink.from}» бөлімін меңгермегендердің ${share(rootLink.failIfWeak)}-ы «${rootLink.to}» бөлімін де орындай алмады, меңгергендердің арасында — тек ${share(
+          rootLink.failIfStrong,
+        )}. Алдымен осы негізгі бөлімнен бастау керек.`,
+      ),
     });
   }
   const tb = a.textbooks;
@@ -1051,29 +1097,44 @@ function buildInsights(a: Analysis): Insight[] {
       out.push({
         tab: "textbooks",
         tone: "info",
-        title: "Сырые баллы вводят в заблуждение",
-        text: `По средним баллам лидирует «${naiveTop}», но им чаще пользуются сильные городские школы. С учётом стартового уровня учеников лучший результат у «${tb.best}» (${pct(
-          bestRow.adjusted.mean,
-        )}).`,
+        title: t("Сырые баллы вводят в заблуждение", "Шикі балдар адастырады"),
+        text: t(
+          `По средним баллам лидирует «${naiveTop}», но им чаще пользуются сильные городские школы. С учётом стартового уровня учеников лучший результат у «${tb.best}» (${pct(
+            bestRow.adjusted.mean,
+          )}).`,
+          `Орташа балл бойынша «${naiveTop}» алда, бірақ оны күшті қалалық мектептер жиі пайдаланады. Оқушылардың бастапқы деңгейін ескергенде ең жақсы нәтиже — «${tb.best}» (${pct(
+            bestRow.adjusted.mean,
+          )}).`,
+        ),
       });
     } else {
       out.push({
         tab: "textbooks",
         tone: "good",
-        title: `Лучший учебник по результатам — «${tb.best}»`,
+        title: t(`Лучший учебник по результатам — «${tb.best}»`, `Нәтиже бойынша ең жақсы оқулық — «${tb.best}»`),
         text: tb.bestSignificant
-          ? `Отрыв от второго места ${pp(tb.bestMargin)} с учётом стартового уровня учеников — различие статистически надёжно.`
-          : `Но отрыв от второго места (${pp(tb.bestMargin)}) в пределах погрешности — менять учебник только из-за этого не стоит.`,
+          ? t(
+              `Отрыв от второго места ${pp(tb.bestMargin)} с учётом стартового уровня учеников — различие статистически надёжно.`,
+              `Оқушылардың бастапқы деңгейін ескергенде екінші орыннан айырмасы ${pp(tb.bestMargin)} — айырма статистикалық тұрғыда сенімді.`,
+            )
+          : t(
+              `Но отрыв от второго места (${pp(tb.bestMargin)}) в пределах погрешности — менять учебник только из-за этого не стоит.`,
+              `Бірақ екінші орыннан айырмасы (${pp(tb.bestMargin)}) қателік шегінде — тек осы себеппен оқулықты ауыстырудың қажеті жоқ.`,
+            ),
       });
     }
   }
   const lag = tb.lags[0];
   if (lag) {
+    const gap = `${Math.abs(lag.diffVsBest).toFixed(1).replace(".", ",")} ${u}`;
     out.push({
       tab: "textbooks",
       tone: "risk",
-      title: `«${lag.textbook}» отстаёт в разделе «${lag.section}»`,
-      text: `На ${Math.abs(lag.diffVsBest).toFixed(1).replace(".", ",")} п.п. ниже лучшего учебника при равном составе учеников. Достаточно дополнительных материалов к этой главе, менять учебник целиком не обязательно.`,
+      title: t(`«${lag.textbook}» отстаёт в разделе «${lag.section}»`, `«${lag.textbook}» «${lag.section}» бөлімінде артта қалады`),
+      text: t(
+        `На ${gap} ниже лучшего учебника при равном составе учеников. Достаточно дополнительных материалов к этой главе, менять учебник целиком не обязательно.`,
+        `Оқушылар құрамы бірдей болғанда ең жақсы оқулықтан ${gap} төмен. Осы тарауға қосымша материалдар жеткілікті, оқулықты толық ауыстыру міндетті емес.`,
+      ),
     });
   }
   const h = a.hours;
@@ -1082,8 +1143,14 @@ function buildInsights(a: Analysis): Insight[] {
     out.push({
       tab: "hours",
       tone: "good",
-      title: `Перераспределение ${h.movedHours} ч даст ${pp(h.meanAfter - h.meanBefore)}`,
-      text: `${up.join(", ")} — за счёт разделов с низкой отдачей от часов. Доля результатов ниже 40% снизится с ${share(h.lowBefore)} до ${share(h.lowAfter)}. Общий объём часов не меняется.`,
+      title: t(
+        `Перераспределение ${h.movedHours} ч даст ${pp(h.meanAfter - h.meanBefore)}`,
+        `${h.movedHours} сағатты қайта бөлу ${pp(h.meanAfter - h.meanBefore)} береді`,
+      ),
+      text: t(
+        `${up.join(", ")} — за счёт разделов с низкой отдачей от часов. Доля результатов ниже 40% снизится с ${share(h.lowBefore)} до ${share(h.lowAfter)}. Общий объём часов не меняется.`,
+        `${up.join(", ")} — сағат қайтарымы төмен бөлімдер есебінен. 40%-дан төмен нәтижелер үлесі ${share(h.lowBefore)}-дан ${share(h.lowAfter)}-ға дейін азаяды. Сағаттардың жалпы көлемі өзгермейді.`,
+      ),
     });
   }
   const uneven = a.sections.filter((s) => s.uneven).sort((x, y) => y.icc - x.icc)[0];
@@ -1091,8 +1158,11 @@ function buildInsights(a: Analysis): Insight[] {
     out.push({
       tab: "sections",
       tone: "info",
-      title: `«${uneven.name}» сильно зависит от школы`,
-      text: `Разброс между школами выше, чем по другим разделам, даже с учётом уровня учеников и учебника. Значит, дело в преподавании. Нужна адресная методическая помощь школам с низким результатом и обмен опытом с лучшими.`,
+      title: t(`«${uneven.name}» сильно зависит от школы`, `«${uneven.name}» мектепке қатты тәуелді`),
+      text: t(
+        "Разброс между школами выше, чем по другим разделам, даже с учётом уровня учеников и учебника. Значит, дело в преподавании. Нужна адресная методическая помощь школам с низким результатом и обмен опытом с лучшими.",
+        "Мектептер арасындағы алшақтық басқа бөлімдерге қарағанда жоғары, тіпті оқушылар деңгейі мен оқулықты ескергенде де. Демек, мәселе оқытуда. Нәтижесі төмен мектептерге атаулы әдістемелік көмек және үздік мектептермен тәжірибе алмасу қажет.",
+      ),
     });
   }
   return out;

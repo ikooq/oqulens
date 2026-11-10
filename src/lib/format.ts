@@ -1,3 +1,5 @@
+import type { Lang } from "./i18n";
+
 export const fmt1 = (x: number) => (Number.isFinite(x) ? x.toFixed(1).replace(".", ",") : "—");
 export const pct = (x: number) => (Number.isFinite(x) ? `${Math.round(x)}%` : "—");
 export const share = (x: number) => (Number.isFinite(x) ? `${Math.round(100 * x)}%` : "—");
@@ -19,6 +21,32 @@ export const nClasses = (n: number) => `${n} ${plural(n, ["класс", "кла�
 export const nSections = (n: number) => `${n} ${plural(n, ["раздел", "раздела", "разделов"])}`;
 export const nDistricts = (n: number) => `${n} ${plural(n, ["район", "района", "районов"])}`;
 export const signed =(x: number) => (x > 0 ? `+${x}` : x < 0 ? `−${Math.abs(x)}` : "0");
+
+/**
+ * Форматтеры с учётом языка интерфейса. В казахском числительное не меняет
+ * форму существительного: «5 мектеп», поэтому склонение нужно только для русского.
+ */
+export function makeFmt(lang: Lang) {
+  const kk = lang === "kk";
+  const unit = kk ? "п.т." : "п.п.";
+  return {
+    pct,
+    share,
+    fmt1,
+    int,
+    signed,
+    pp: (x: number) => (Number.isFinite(x) ? `${x > 0.05 ? "+" : x < -0.05 ? "−" : ""}${fmt1(Math.abs(x))} ${unit}` : "—"),
+    ppAbs: (x: number) => `${fmt1(Math.abs(x))} ${unit}`,
+    unit,
+    nStudents: (n: number) => (kk ? `${int(n)} оқушы` : nStudents(n)),
+    nSchools: (n: number) => (kk ? `${n} мектеп` : nSchools(n)),
+    nClasses: (n: number) => (kk ? `${n} сынып` : nClasses(n)),
+    nSections: (n: number) => (kk ? `${n} бөлім` : nSections(n)),
+    nDistricts: (n: number) => (kk ? `${n} аудан` : nDistricts(n)),
+    hours: (n: number) => (kk ? `${n} сағ` : `${n} ч`),
+  };
+}
+export type Fmt = ReturnType<typeof makeFmt>;
 
 /** Цвет ячейки тепловой карты: красный → янтарный → зелёный. */
 export function heatColor(v: number): string {

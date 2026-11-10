@@ -1,7 +1,8 @@
 import { ReactNode } from "react";
 import { Level } from "@/lib/types";
-import { LEVEL_LABEL, LEVEL_ORDER } from "@/lib/analytics";
+import { LEVEL_ORDER, levelLabel } from "@/lib/analytics";
 import { share } from "@/lib/format";
+import { useLang, useT } from "./lang";
 
 export function Card({
   title,
@@ -74,6 +75,7 @@ const LEVEL_BG: Record<Level, string> = {
 };
 
 export function LevelBar({ levels, height = "h-3" }: { levels: Record<Level, number>; height?: string }) {
+  const lang = useLang();
   return (
     <div className={`flex w-full overflow-hidden rounded-full bg-slate-100 ${height}`}>
       {LEVEL_ORDER.map((l) => (
@@ -81,7 +83,7 @@ export function LevelBar({ levels, height = "h-3" }: { levels: Record<Level, num
           key={l}
           className={LEVEL_BG[l]}
           style={{ width: `${100 * levels[l]}%` }}
-          title={`${LEVEL_LABEL[l]}: ${share(levels[l])}`}
+          title={`${levelLabel(l, lang)}: ${share(levels[l])}`}
         />
       ))}
     </div>
@@ -89,12 +91,13 @@ export function LevelBar({ levels, height = "h-3" }: { levels: Record<Level, num
 }
 
 export function LevelLegend() {
+  const lang = useLang();
   return (
     <div className="flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-muted">
       {LEVEL_ORDER.map((l) => (
         <span key={l} className="inline-flex items-center gap-1.5">
           <span className={`h-2.5 w-2.5 rounded-sm ${LEVEL_BG[l]}`} />
-          {LEVEL_LABEL[l]}
+          {levelLabel(l, lang)}
         </span>
       ))}
     </div>
@@ -114,19 +117,26 @@ export function Segmented<T extends string>({
   value,
   options,
   onChange,
+  dark = false,
 }: {
   value: T;
   options: { value: T; label: string }[];
   onChange: (v: T) => void;
+  dark?: boolean;
 }) {
   return (
-    <div className="inline-flex rounded-lg bg-slate-100 p-0.5">
+    <div className={`inline-flex rounded-lg p-0.5 ${dark ? "bg-white/10" : "bg-slate-100"}`}>
       {options.map((o) => (
         <button
           key={o.value}
           onClick={() => onChange(o.value)}
+          aria-pressed={value === o.value}
           className={`rounded-md px-3 py-1.5 text-[12.5px] font-semibold transition ${
-            value === o.value ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800"
+            value === o.value
+              ? "bg-white text-slate-900 shadow-sm"
+              : dark
+                ? "text-slate-300 hover:text-white"
+                : "text-slate-500 hover:text-slate-800"
           }`}
         >
           {o.label}
@@ -137,7 +147,8 @@ export function Segmented<T extends string>({
 }
 
 export function StatusBadge({ status }: { status: "hard" | "watch" | "ok" }) {
-  if (status === "hard") return <Badge tone="red">Трудный</Badge>;
-  if (status === "watch") return <Badge tone="amber">Внимание</Badge>;
-  return <Badge tone="green">Норма</Badge>;
+  const t = useT();
+  if (status === "hard") return <Badge tone="red">{t("Трудный", "Қиын")}</Badge>;
+  if (status === "watch") return <Badge tone="amber">{t("Внимание", "Назар")}</Badge>;
+  return <Badge tone="green">{t("Норма", "Қалыпты")}</Badge>;
 }
