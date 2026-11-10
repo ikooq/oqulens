@@ -14,6 +14,7 @@ type Msg = {
   role: "user" | "assistant";
   text: string;
   source?: "rules" | "ai" | "notice";
+  provider?: "claude" | "gemini";
   tab?: TabId;
   school?: string;
   actionLabel?: string;
@@ -98,7 +99,7 @@ export default function Assistant({
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.text) {
-        setMsgs((m) => [...m, { role: "assistant", source: "ai", text: data.text }]);
+        setMsgs((m) => [...m, { role: "assistant", source: "ai", text: data.text, provider: data.provider }]);
       } else if (data.error === "no_key") {
         setMsgs((m) => [
           ...m,
@@ -176,7 +177,9 @@ export default function Assistant({
                       {m.source !== "notice" && (
                         <span className="inline-flex items-center gap-1 text-[11px] font-medium text-muted">
                           {m.source === "ai" ? <Sparkles size={12} /> : <Calculator size={12} />}
-                          {m.source === "ai" ? t("Ответ ИИ (Claude)", "ИИ жауабы (Claude)") : t("Ответ из расчётов", "Есептеулерден алынған жауап")}
+                          {m.source === "ai"
+                            ? `${t("Ответ ИИ", "ИИ жауабы")} (${m.provider === "gemini" ? "Gemini" : "Claude"})`
+                            : t("Ответ из расчётов", "Есептеулерден алынған жауап")}
                         </span>
                       )}
                       {m.tab && m.actionLabel && (

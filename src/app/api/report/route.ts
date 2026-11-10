@@ -1,7 +1,8 @@
 // ИИ-записка методиста. В модель уходят только агрегированные показатели
-// (без данных отдельных учеников). Без ключа API возвращает 503,
-// и интерфейс показывает детерминированную записку.
-import Anthropic from "@anthropic-ai/sdk";
+// (без данных отдельных учеников). Провайдер: Claude или бесплатный Gemini (см. lib/llm).
+// Без ключей возвращает 503, и интерфейс показывает детерминированную записку.
+import { activeProvider, complete, LlmError } from "@/lib/llm";
+import { errorResponse } from "@/lib/llmErrors";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -40,60 +41,31 @@ const SYSTEM_KK = `Сен — Қазақстан білім басқармасы
 Пішім: Markdown. «# Әдістемелік жазба» тақырыбы, одан кейін «##» бөлімдері. Кестелер қолданба. Көлемі — 450–700 сөз.`;
 
 export async function POST(req: Request) {
-  const hasCredentials = !!(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
-  if (!hasCredentials) {
-    return Response.json({ error: "no_key", message: "ИИ-модуль не настроен: задайте ANTHROPIC_API_KEY на сервере." }, { status: 503 });
-  }
-
   let body: { summary?: unknown; lang?: string };
   try {
     body = await req.json();
   } catch {
     return Response.json({ error: "bad_request", message: "Некорректный запрос." }, { status: 400 });
   }
+  const lang = body.lang === "kk" ? "kk" : "ru";
+  if (!activeProvider()) return errorResponse(new LlmError("no_key", "no key"), lang);
   if (!body.summary || typeof body.summary !== "object") {
     return Response.json({ error: "bad_request", message: "Нет сводки анализа." }, { status: 400 });
   }
-  const lang = body.lang === "kk" ? "kk" : "ru";
   const summaryJson = JSON.stringify(body.summary);
   if (summaryJson.length > 60_000) {
     return Response.json({ error: "too_large", message: "Сводка слишком большая." }, { status: 413 });
   }
 
-  const client = new Anthropic();
   try {
-    const response = await client.beta.messages.create({
-      model: "claude-opus-5-5",
-      max_tokens: 16000,
-      betas: ["server-side-fallback-2026-07-01"],
-      fallbacks: "default",
-      output_config: { effort: "medium" },
+    const r = await complete({
       system: lang === "kk" ? SYSTEM_KK : SYSTEM_RU,
-      messages: [
-        {
-          role: "user",
-          content: `Сводка анализа (JSON):\n\n${summaryJson}`,
-        },
-      ],
+      turns: [{ role: "user", text: `Сводка анализа (JSON):\n\n${summaryJson}` }],
+      maxTokens: 16000,
+      effort: "medium",
     });
-
-    if (response.stop_reason === "refusal") {
-      return Response.json({ error: "refusal", message: "Модель не смогла подготовить записку для этих данных." }, { status: 422 });
-    }
-    const text = response.content
-      .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === "text")
-      .map((b) => b.text)
-      .join("\n")
-      .trim();
-    if (!text) return Response.json({ error: "empty", message: "Модель вернула пустой ответ." }, { status: 502 });
-    return Response.json({ text, model: response.model, truncated: response.stop_reason === "max_tokens" });
+    return Response.json({ text: r.text, provider: r.provider, model: r.model, truncated: r.truncated });
   } catch (error) {
-    if (error instanceof Anthropic.AuthenticationError)
-      return Response.json({ error: "auth", message: "Неверный ключ API на сервере." }, { status: 502 });
-    if (error instanceof Anthropic.RateLimitError)
-      return Response.json({ error: "rate_limit", message: "Превышен лимит запросов к ИИ — попробуйте через минуту." }, { status: 429 });
-    if (error instanceof Anthropic.APIError)
-      return Response.json({ error: "api", message: `Ошибка ИИ-сервиса (${error.status ?? "сеть"}).` }, { status: 502 });
-    return Response.json({ error: "unknown", message: "Не удалось получить ответ ИИ." }, { status: 500 });
+    return errorResponse(error, lang);
   }
 }

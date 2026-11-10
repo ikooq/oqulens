@@ -1,7 +1,9 @@
 // ИИ-ассистент методиста: отвечает на вопросы по результатам анализа.
 // В модель уходят только агрегированные показатели (без данных отдельных учеников).
-// Без ключа API возвращает 503, и интерфейс предлагает готовые вопросы с ответами из расчётов.
-import Anthropic from "@anthropic-ai/sdk";
+// Провайдер: Claude или бесплатный Gemini (см. lib/llm). Без ключей возвращает 503,
+// и интерфейс предлагает готовые вопросы с ответами из расчётов.
+import { activeProvider, complete, LlmError, Turn } from "@/lib/llm";
+import { errorResponse } from "@/lib/llmErrors";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -27,7 +29,6 @@ const SYSTEM_KK = `Сен — OquLens ИИ-көмекшісісің, Қазақ�
 - JSON-дағы атаулар орысша болса, мағынасын сақтап қазақшаға аудар.
 - Пішім: қарапайым мәтін; тізім үшін «- » деп басталатын жолдар; жуан — **осылай**. Тақырыптар мен кестелерсіз.`;
 
-type Turn = { role: "user" | "assistant"; text: string };
 
 export async function POST(req: Request) {
   let body: { summary?: unknown; question?: unknown; history?: unknown; lang?: unknown };
@@ -39,12 +40,7 @@ export async function POST(req: Request) {
   const lang = body.lang === "kk" ? "kk" : "ru";
   const t = (ru: string, kk: string) => (lang === "kk" ? kk : ru);
 
-  if (!(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN)) {
-    return Response.json(
-      { error: "no_key", message: t("ИИ-модуль не настроен: на сервере нет ключа ANTHROPIC_API_KEY.", "ИИ-модуль бапталмаған: серверде ANTHROPIC_API_KEY кілті жоқ.") },
-      { status: 503 },
-    );
-  }
+  if (!activeProvider()) return errorResponse(new LlmError("no_key", "no key"), lang);
   const question = typeof body.question === "string" ? body.question.trim().slice(0, 1000) : "";
   if (!question || !body.summary || typeof body.summary !== "object") {
     return Response.json({ error: "bad_request", message: t("Нет вопроса или сводки анализа.", "Сұрақ немесе талдау қорытындысы жоқ.") }, { status: 400 });
@@ -62,52 +58,27 @@ export async function POST(req: Request) {
         .map((m) => ({ role: m.role, text: m.text.slice(0, 4000) }))
     : [];
   while (history.length && history[0].role !== "user") history.shift();
-  const messages: Anthropic.Beta.BetaMessageParam[] = [];
+  // Склеиваем подряд идущие реплики одной стороны, последней должна быть реплика пользователя
+  const turns: Turn[] = [];
   for (const m of history) {
-    const last = messages[messages.length - 1];
-    if (last && last.role === m.role) last.content = `${last.content as string}\n\n${m.text}`;
-    else messages.push({ role: m.role, content: m.text });
+    const last = turns[turns.length - 1];
+    if (last && last.role === m.role) last.text = `${last.text}\n\n${m.text}`;
+    else turns.push({ ...m });
   }
-  if (messages.length && messages[messages.length - 1].role === "user") messages.pop();
-  messages.push({ role: "user", content: question });
+  if (turns.length && turns[turns.length - 1].role === "user") turns.pop();
+  turns.push({ role: "user", text: question });
 
-  const client = new Anthropic();
   try {
-    const response = await client.beta.messages.create({
-      model: "claude-opus-5-5",
-      max_tokens: 4000,
-      betas: ["server-side-fallback-2026-07-01"],
-      fallbacks: "default",
-      thinking: { type: "adaptive" },
-      output_config: { effort: "low" },
-      system: [
-        { type: "text", text: lang === "kk" ? SYSTEM_KK : SYSTEM_RU },
-        // Сводка одинакова для всех вопросов сессии — кешируем её
-        { type: "text", text: `Сводка анализа (JSON):\n\n${summaryJson}`, cache_control: { type: "ephemeral" } },
-      ],
-      messages,
+    const r = await complete({
+      system: lang === "kk" ? SYSTEM_KK : SYSTEM_RU,
+      // Сводка одинакова для всех вопросов сессии — у Claude она кешируется
+      context: `Сводка анализа (JSON):\n\n${summaryJson}`,
+      turns,
+      maxTokens: 4000,
+      effort: "low",
     });
-
-    if (response.stop_reason === "refusal") {
-      return Response.json({ error: "refusal", message: t("Модель не смогла ответить на этот вопрос.", "Модель бұл сұраққа жауап бере алмады.") }, { status: 422 });
-    }
-    const text = response.content
-      .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === "text")
-      .map((b) => b.text)
-      .join("\n")
-      .trim();
-    if (!text) return Response.json({ error: "empty", message: t("Модель вернула пустой ответ.", "Модель бос жауап қайтарды.") }, { status: 502 });
-    return Response.json({ text, model: response.model });
+    return Response.json({ text: r.text, provider: r.provider, model: r.model });
   } catch (error) {
-    if (error instanceof Anthropic.AuthenticationError)
-      return Response.json({ error: "auth", message: t("Неверный ключ API на сервере.", "Сервердегі API кілті қате.") }, { status: 502 });
-    if (error instanceof Anthropic.RateLimitError)
-      return Response.json(
-        { error: "rate_limit", message: t("Превышен лимит запросов к ИИ — попробуйте через минуту.", "ИИ сұраныстарының шегі асты — бір минуттан кейін қайталаңыз.") },
-        { status: 429 },
-      );
-    if (error instanceof Anthropic.APIError)
-      return Response.json({ error: "api", message: t(`Ошибка ИИ-сервиса (${error.status ?? "сеть"}).`, `ИИ-сервис қатесі (${error.status ?? "желі"}).`) }, { status: 502 });
-    return Response.json({ error: "unknown", message: t("Не удалось получить ответ ИИ.", "ИИ жауабын алу мүмкін болмады.") }, { status: 500 });
+    return errorResponse(error, lang);
   }
 }

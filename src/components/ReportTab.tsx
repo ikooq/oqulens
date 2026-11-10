@@ -18,7 +18,7 @@ export default function ReportTab({ a, ctx }: { a: Analysis; ctx: ReportContext 
   const [lang, setLang] = useState<Lang>(uiLang);
   useEffect(() => setLang(uiLang), [uiLang]);
   const rulesText = useMemo(() => buildReport(a, ctx, lang), [a, ctx, lang]);
-  const [ai, setAi] = useState<{ text: string; lang: Lang } | null>(null);
+  const [ai, setAi] = useState<{ text: string; lang: Lang; provider?: string } | null>(null);
   const [source, setSource] = useState<Source>("rules");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,11 +38,14 @@ export default function ReportTab({ a, ctx }: { a: Analysis; ctx: ReportContext 
       if (!res.ok) {
         throw new Error(
           data.error === "no_key"
-            ? t("ИИ-модуль ещё не подключён: на сервере нет ключа API.", "ИИ-модуль әлі қосылмаған: серверде API кілті жоқ.")
+            ? t(
+                "ИИ-модуль ещё не подключён: на сервере нет ключа (подойдёт бесплатный ключ Gemini).",
+                "ИИ-модуль әлі қосылмаған: серверде кілт жоқ (тегін Gemini кілті жарайды).",
+              )
             : (data.message ?? fail),
         );
       }
-      setAi({ text: data.text, lang });
+      setAi({ text: data.text, lang, provider: data.provider });
       setSource("ai");
     } catch (e) {
       setError(e instanceof Error ? e.message : fail);
@@ -62,7 +65,16 @@ export default function ReportTab({ a, ctx }: { a: Analysis; ctx: ReportContext 
             onChange={(v) => setSource(v)}
             options={[
               { value: "rules", label: t("Автоматическая записка", "Автоматты жазба") },
-              ...(ai ? [{ value: "ai" as Source, label: ai.lang === "kk" ? t("ИИ-записка (қаз)", "ИИ-жазба (қаз)") : t("ИИ-записка", "ИИ-жазба (орыс)") }] : []),
+              ...(ai
+                ? [
+                    {
+                      value: "ai" as Source,
+                      label: `${ai.lang === "kk" ? t("ИИ-записка (қаз)", "ИИ-жазба (қаз)") : t("ИИ-записка", "ИИ-жазба (орыс)")} · ${
+                        ai.provider === "gemini" ? "Gemini" : "Claude"
+                      }`,
+                    },
+                  ]
+                : []),
             ]}
           />
           <span className="hidden h-6 w-px bg-line sm:block" />
