@@ -1,0 +1,54 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
+  --color-ink: #0c1a2b;
+  --color-ink-2: #15283e;
+  --color-brand: #0f8a6c;
+  --color-brand-600: #0b7059;
+  --color-brand-50: #e8f5f0;
+  --color-surface: #f4f6f9;
+  --color-line: #e3e7ee;
+  --color-muted: #64748b;
+  --color-lvl-low: #e5484d;
+  --color-lvl-mid: #f2a33a;
+  --color-lvl-good: #8cc56a;
+  --color-lvl-high: #1f9d63;
+}
+
+html,
+body {
+  background: var(--color-surface);
+  color: #0f172a;
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+input[type="range"] {
+  accent-color: var(--color-brand);
+}
+
+/* Тонкая полоса прокрутки для широкой тепловой карты */
+.scroll-thin::-webkit-scrollbar {
+  height: 8px;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 8px;
+}
+
+@media print {
+  html,
+  body {
+    background: #fff;
+  }
+  @page {
+    margin: 16mm;
+  }
+}
