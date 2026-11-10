@@ -10,12 +10,15 @@ import {
   Layers,
   LayoutDashboard,
   RotateCcw,
+  School,
   ShieldCheck,
   Upload,
   X,
 } from "lucide-react";
 import { analyze, applyFilters } from "@/lib/analytics";
-import { downloadText, parseCsv, toCsv } from "@/lib/csv";
+import { columnsHelpRows, downloadText, ParseResult, parseCsv, toCsv, toSheetRows } from "@/lib/csv";
+import { parseXlsx } from "@/lib/xlsx";
+import { downloadXlsx } from "@/lib/xlsxWriter";
 import { generateDemo } from "@/lib/generator";
 import { int, nClasses, nSchools, nSections, nStudents } from "@/lib/format";
 import { Dataset, Filters } from "@/lib/types";
@@ -23,25 +26,39 @@ import { ReportContext } from "@/lib/report";
 import Welcome from "./Welcome";
 import OverviewTab from "./OverviewTab";
 import SectionsTab from "./SectionsTab";
+import SchoolsTab from "./SchoolsTab";
 import TextbooksTab from "./TextbooksTab";
 import HoursTab from "./HoursTab";
 import ReportTab from "./ReportTab";
 
-export type Tab = "overview" | "sections" | "textbooks" | "hours" | "report";
+export type Tab = "overview" | "sections" | "schools" | "textbooks" | "hours" | "report";
 
 const NAV: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: "overview", label: "Обзор", icon: <LayoutDashboard size={18} /> },
   { id: "sections", label: "Трудные разделы", icon: <Layers size={18} /> },
+  { id: "schools", label: "Школы", icon: <School size={18} /> },
   { id: "textbooks", label: "Учебники", icon: <BookOpen size={18} /> },
   { id: "hours", label: "Учебные часы", icon: <Clock size={18} /> },
   { id: "report", label: "Методическая записка", icon: <FileText size={18} /> },
 ];
 
 const ALL: Filters = { district: "all", locality: "all", language: "all" };
+const isAll = (f: Filters) => f.district === "all" && f.locality === "all" && f.language === "all";
+
+const templateRows = () => generateDemo(1).rows.filter((r) => r.studentId <= "U00002");
 
 export function downloadTemplate() {
-  const demo = generateDemo(1).rows.filter((r) => r.studentId <= "U00002");
-  downloadText(toCsv(demo), "oqulens_template.csv");
+  downloadText(toCsv(templateRows()), "oqulens_template.csv");
+}
+
+export function downloadTemplateXlsx() {
+  downloadXlsx(
+    [
+      { name: "Данные", rows: toSheetRows(templateRows()), widths: [18, 12, 10, 8, 16, 10, 12, 34, 14, 10, 10, 8, 10, 18] },
+      { name: "Описание", rows: columnsHelpRows(), widths: [20, 14, 44] },
+    ],
+    "oqulens_shablon.xlsx",
+  );
 }
 
 export default function App() {
@@ -53,6 +70,11 @@ export default function App() {
     window.scrollTo({ top: 0 });
   };
   const [messages, setMessages] = useState<{ tone: "error" | "warn"; text: string }[]>([]);
+  const [school, setSchool] = useState<string | undefined>();
+  const openSchool = (s: string) => {
+    setSchool(s);
+    setTab("schools");
+  };
   const fileRef = useRef<HTMLInputElement>(null);
 
   const rows = useMemo(() => (dataset ? applyFilters(dataset.rows, filters) : []), [dataset, filters]);
@@ -73,22 +95,36 @@ export default function App() {
   const openDemo = () => {
     setDataset(generateDemo(2026));
     setFilters(ALL);
+    setSchool(undefined);
     setTab("overview");
     setMessages([]);
   };
 
   const onFile = async (f: File | undefined) => {
     if (!f) return;
-    const text = await f.text();
-    const res = parseCsv(text, f.name);
+    const lower = f.name.toLowerCase();
+    let res: ParseResult;
+    if (lower.endsWith(".xls")) {
+      res = { errors: ["Старый формат .xls не поддерживается. Сохраните файл в Excel как .xlsx или CSV."], warnings: [] };
+    } else if (lower.endsWith(".xlsx")) {
+      res = await parseXlsx(await f.arrayBuffer(), f.name);
+    } else {
+      res = parseCsv(await f.text(), f.name);
+    }
     if (!res.dataset) {
       setMessages(res.errors.map((t) => ({ tone: "error" as const, text: t })));
       return;
     }
     setDataset(res.dataset);
     setFilters(ALL);
+    setSchool(undefined);
     setTab("overview");
-    setMessages(res.warnings.map((t) => ({ tone: "warn" as const, text: t })));
+    const issues = res.dataset.quality?.checks.filter((c) => c.level === "warn").length ?? 0;
+    setMessages(
+      issues
+        ? [{ tone: "warn" as const, text: `Данные загружены, но есть замечания (${issues}). Подробности — в блоке «Качество данных» на вкладке «Обзор».` }]
+        : [],
+    );
   };
 
   const title = dataset
@@ -114,7 +150,7 @@ export default function App() {
     <input
       ref={fileRef}
       type="file"
-      accept=".csv,text/csv"
+      accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
       className="hidden"
       onChange={(e) => {
         onFile(e.target.files?.[0]);
@@ -145,19 +181,25 @@ export default function App() {
     return (
       <>
         {fileInput}
-        <Welcome onDemo={openDemo} onUpload={() => fileRef.current?.click()} onTemplate={downloadTemplate} />
+        <Welcome
+          onDemo={openDemo}
+          onUpload={() => fileRef.current?.click()}
+          onTemplate={downloadTemplateXlsx}
+          onTemplateCsv={downloadTemplate}
+        />
         {toast}
       </>
     );
   }
 
   const select = (key: keyof Filters, label: string, values: string[], render?: (v: string) => string) => (
-    <label className="flex items-center gap-2 text-[12.5px] text-muted">
+    <label className="flex min-w-0 items-center gap-2 text-[12.5px] text-muted">
       <span className="hidden xl:inline">{label}</span>
       <select
         value={filters[key]}
         onChange={(e) => setFilters({ ...filters, [key]: e.target.value })}
-        className="h-9 rounded-lg border border-line bg-white px-2.5 text-[13px] font-medium text-slate-800 outline-none focus:border-brand"
+        aria-label={label}
+        className="h-9 w-full min-w-0 rounded-lg border border-line bg-white px-2 text-[13px] font-medium text-slate-800 outline-none focus:border-brand sm:w-auto sm:px-2.5"
       >
         <option value="all">{key === "district" ? "Все районы" : "Все"}</option>
         {values.map((v) => (
@@ -200,15 +242,18 @@ export default function App() {
           <p className="tabular mt-1 text-slate-400">{int(dataset.rows.length)} результатов СОР</p>
           <div className="mt-3 grid gap-1.5">
             <SideButton icon={<Upload size={14} />} onClick={() => fileRef.current?.click()}>
-              Загрузить CSV
+              Загрузить CSV / Excel
             </SideButton>
             {dataset.synthetic && (
-              <SideButton icon={<Download size={14} />} onClick={() => downloadText(toCsv(dataset.rows), "oqulens_demo_algebra7.csv")}>
-                Скачать демо-CSV
+              <SideButton
+                icon={<Download size={14} />}
+                onClick={() => downloadXlsx([{ name: "Данные", rows: toSheetRows(dataset.rows) }], "oqulens_demo_algebra7.xlsx")}
+              >
+                Скачать демо (Excel)
               </SideButton>
             )}
-            <SideButton icon={<Download size={14} />} onClick={downloadTemplate}>
-              Шаблон CSV
+            <SideButton icon={<Download size={14} />} onClick={downloadTemplateXlsx}>
+              Шаблон Excel
             </SideButton>
             <SideButton
               icon={<RotateCcw size={14} />}
@@ -229,8 +274,8 @@ export default function App() {
 
       {/* Основная часть */}
       <main className="min-w-0 flex-1">
-        <header className="sticky top-0 z-30 border-b border-line bg-surface/90 backdrop-blur print:hidden">
-          <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-3">
+        <header className="z-30 border-b border-line bg-surface/90 backdrop-blur md:sticky md:top-0 print:hidden">
+          <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <div className="lg:hidden">
@@ -244,14 +289,14 @@ export default function App() {
                 {nSections(analysis.meta.sections.length)}
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2.5">
+            <div className="grid w-full grid-cols-[2fr_1fr_1fr] gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center sm:gap-2.5">
               {select("district", "Район", options.districts)}
               {options.localities.length > 1 && select("locality", "Местность", options.localities, (v) => (v === "город" ? "Город" : "Село"))}
               {options.languages.length > 1 &&
                 select("language", "Язык", options.languages, (v) => (v === "каз" ? "Казахский" : "Русский"))}
             </div>
           </div>
-          <div className="flex gap-1 overflow-x-auto px-4 pb-2 lg:hidden">
+          <div className="no-scrollbar flex gap-1 overflow-x-auto px-4 pb-2 lg:hidden">
             {NAV.map((n) => (
               <button
                 key={n.id}
@@ -263,9 +308,12 @@ export default function App() {
             ))}
           </div>
         </header>
-        <div className="mx-auto max-w-[1280px] px-6 py-6">
-          {tab === "overview" && <OverviewTab a={analysis} go={setTab} />}
-          {tab === "sections" && <SectionsTab a={analysis} />}
+        <div className="mx-auto max-w-[1280px] px-4 py-5 sm:px-6 sm:py-6">
+          {tab === "overview" && (
+            <OverviewTab a={analysis} go={setTab} truth={isAll(filters) ? dataset.truth : undefined} quality={dataset.quality} />
+          )}
+          {tab === "sections" && <SectionsTab a={analysis} onSchool={openSchool} />}
+          {tab === "schools" && <SchoolsTab a={analysis} school={school} onSelect={setSchool} />}
           {tab === "textbooks" && <TextbooksTab a={analysis} />}
           {tab === "hours" && <HoursTab a={analysis} />}
           {tab === "report" && <ReportTab a={analysis} ctx={ctx} />}

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Download, Info, RotateCcw, Sparkles } from "lucide-react";
 import { Analysis } from "@/lib/analytics";
-import { downloadText } from "@/lib/csv";
+import { downloadXlsx } from "@/lib/xlsxWriter";
 import { fmt1, nClasses, pct, pp, share, signed } from "@/lib/format";
 import { Card, Kpi, Note } from "./ui";
 
@@ -26,13 +26,20 @@ export default function HoursTab({ a }: { a: Analysis }) {
     );
 
   const exportPlan = () => {
-    const lines = [
-      "section_order,section,planned_hours,recommended_hours,delta,expected_change_pp,reason",
-      ...h.sections.map((s) =>
-        [s.order, `"${s.name}"`, s.planned, s.recommended, s.delta, s.gain.toFixed(1), `"${s.reason.replace(/"/g, "'")}"`].join(","),
-      ),
-    ];
-    downloadText(lines.join("\n"), "oqulens_hours_plan.csv");
+    downloadXlsx(
+      [
+        {
+          name: "План часов",
+          widths: [6, 36, 12, 14, 10, 18, 90],
+          rows: [
+            ["№", "Раздел", "Часы по плану", "Рекомендуется", "Изменение", "Ожидаемый эффект, п.п.", "Обоснование"],
+            ...h.sections.map((s) => [s.order, s.name, s.planned, s.recommended, s.delta, Math.round(s.gain * 10) / 10, s.reason]),
+            [null, "Итого", h.totalPlanned, h.sections.reduce((x, s) => x + s.recommended, 0), 0, null, "Общий объём часов не меняется"],
+          ],
+        },
+      ],
+      "oqulens_plan_chasov.xlsx",
+    );
   };
   const maxH = Math.max(...h.sections.map((s) => Math.max(s.planned, s.recommended)));
 
@@ -57,7 +64,7 @@ export default function HoursTab({ a }: { a: Analysis }) {
             onClick={exportPlan}
             className="inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-[12.5px] font-semibold text-slate-700 hover:bg-slate-50"
           >
-            <Download size={14} /> Скачать план (CSV)
+            <Download size={14} /> Скачать план (Excel)
           </button>
         }
       >

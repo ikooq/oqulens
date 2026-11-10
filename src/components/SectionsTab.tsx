@@ -6,7 +6,7 @@ import { Analysis } from "@/lib/analytics";
 import { heatColor, heatText, pct, pp, share } from "@/lib/format";
 import { Badge, Card, Note, Segmented, StatusBadge } from "./ui";
 
-export default function SectionsTab({ a }: { a: Analysis }) {
+export default function SectionsTab({ a, onSchool }: { a: Analysis; onSchool: (s: string) => void }) {
   const [mode, setMode] = useState<"district" | "school">("district");
   const defaultFocus = a.sections.find((s) => s.uneven)?.name ?? [...a.sections].sort((x, y) => x.mean - y.mean)[0]?.name;
   const [focus, setFocus] = useState(defaultFocus);
@@ -111,8 +111,9 @@ export default function SectionsTab({ a }: { a: Analysis }) {
                     return (
                       <td
                         key={c}
-                        title={`${s.name} · ${c}: ${pct(cell.mean)} (n=${cell.n})`}
-                        className={`tabular rounded-md text-center font-bold ${mode === "district" ? "h-10" : "h-8 text-[10.5px]"}`}
+                        title={`${s.name} · ${c}: ${pct(cell.mean)} (n=${cell.n})${mode === "school" ? " — нажмите, чтобы открыть школу" : ""}`}
+                        onClick={mode === "school" ? () => onSchool(c) : undefined}
+                        className={`tabular rounded-md text-center font-bold ${mode === "district" ? "h-10" : "h-8 cursor-pointer text-[10.5px] hover:outline-2 hover:outline-ink"}`}
                         style={{ background: heatColor(cell.mean), color: heatText(cell.mean) }}
                       >
                         {Number.isFinite(cell.mean) ? Math.round(cell.mean) : ""}
@@ -170,8 +171,8 @@ export default function SectionsTab({ a }: { a: Analysis }) {
         >
           {focusStat && (
             <div className="grid gap-5 sm:grid-cols-2">
-              <SchoolList title="Ниже ожидаемого" items={focusStat.worstSchools} tone="red" />
-              <SchoolList title="Выше ожидаемого — опыт для тиражирования" items={focusStat.bestSchools} tone="green" />
+              <SchoolList title="Ниже ожидаемого" items={focusStat.worstSchools} tone="red" onSchool={onSchool} />
+              <SchoolList title="Выше ожидаемого — опыт для тиражирования" items={focusStat.bestSchools} tone="green" onSchool={onSchool} />
             </div>
           )}
           <div className="mt-4">
@@ -208,17 +209,24 @@ function SchoolList({
   title,
   items,
   tone,
+  onSchool,
 }: {
   title: string;
   items: { school: string; district: string; mean: number; residual: number; n: number }[];
   tone: "red" | "green";
+  onSchool: (s: string) => void;
 }) {
   return (
     <div>
       <h4 className="mb-2 text-[12.5px] font-bold text-slate-700">{title}</h4>
       <div className="space-y-2">
         {items.map((s) => (
-          <div key={s.school} className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2">
+          <button
+            key={s.school}
+            onClick={() => onSchool(s.school)}
+            title="Открыть карточку школы"
+            className="flex w-full items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2 text-left transition hover:bg-slate-100"
+          >
             <div className="min-w-0">
               <div className="truncate text-[13px] font-semibold text-slate-800">{s.school}</div>
               <div className="truncate text-[11.5px] text-muted">
@@ -226,7 +234,7 @@ function SchoolList({
               </div>
             </div>
             <Badge tone={tone}>{pp(s.residual)}</Badge>
-          </div>
+          </button>
         ))}
         {items.length === 0 && <p className="text-[12.5px] text-muted">Нет школ с достаточным числом учеников.</p>}
       </div>

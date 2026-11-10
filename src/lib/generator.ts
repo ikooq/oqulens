@@ -2,7 +2,7 @@
 // Данные ВЫМЫШЛЕННЫЕ. В них специально заложены закономерности, которые
 // платформа должна найти сама (см. README → «Что заложено в демо-данные»).
 
-import { Dataset, Row } from "./types";
+import { Dataset, DemoTruth, Row } from "./types";
 import { clamp, rng, sigmoid } from "./stats";
 
 interface SectionSpec {
@@ -56,6 +56,7 @@ const DISTRICTS: { name: string; schools: number; urbanFirst: boolean; rusShare:
 export function generateDemo(seed = 2026): Dataset {
   const r = rng(seed);
   const rows: Row[] = [];
+  const schoolEffect: DemoTruth["schoolEffect"] = {};
   let schoolNo = 0;
   let studentNo = 0;
 
@@ -73,6 +74,10 @@ export function generateDemo(seed = 2026): Dataset {
       const schoolTeach = r.normal(0, 0.15);
       const schoolSectionTeach = DEMO_SECTIONS.map((sec) => r.normal(0, sec.schoolVariation));
       const school = `Школа ${String(schoolNo).padStart(2, "0")}`;
+      schoolEffect[school] = {
+        overall: schoolTeach + schoolSectionTeach.reduce((a, b) => a + b, 0) / schoolSectionTeach.length,
+        bySection: Object.fromEntries(DEMO_SECTIONS.map((sec, i) => [sec.name, schoolTeach + schoolSectionTeach[i]])),
+      };
       const nClasses = urban ? (r.next() < 0.6 ? 3 : 2) : r.next() < 0.3 ? 1 : 2;
 
       for (let c = 0; c < nClasses; c++) {
@@ -129,6 +134,22 @@ export function generateDemo(seed = 2026): Dataset {
     region: "Жамбылская область",
     synthetic: true,
     rows,
+    truth: {
+      hardest: DEMO_SECTIONS[3].name,
+      prereqs: Object.entries(PREREQ).map(([to, [from, strength]]) => ({
+        from: DEMO_SECTIONS[from].name,
+        to: DEMO_SECTIONS[Number(to)].name,
+        strength,
+      })),
+      bestTextbook: "Учебник Б",
+      lag: { textbook: "Учебник В", section: DEMO_SECTIONS[3].name },
+      hoursPriority: [...DEMO_SECTIONS]
+        .sort((a, b) => b.hoursSensitivity - a.hoursSensitivity)
+        .slice(0, 2)
+        .map((s) => s.name),
+      uneven: DEMO_SECTIONS[4].name,
+      schoolEffect,
+    },
   };
 }
 

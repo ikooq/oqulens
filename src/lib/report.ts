@@ -76,7 +76,29 @@ export function buildSummary(a: Analysis, ctx: ReportContext) {
           })),
         }
       : null,
+    schools: {
+      method:
+        "Результат школы относительно ожидаемого при её составе учеников (стартовый уровень, город/село, учебник); оценки небольших школ сдвинуты к среднему (эмпирический Байес)",
+      below_expected: schoolList(a, "below").map(schoolBrief),
+      above_expected: schoolList(a, "above").map(schoolBrief),
+    },
     key_findings: a.insights.map((i) => `${i.title}. ${i.text}`),
+  };
+}
+
+function schoolList(a: Analysis, flag: "below" | "above") {
+  const xs = a.schools.filter((p) => p.vaFlag === flag);
+  return (flag === "below" ? xs.reverse() : xs).slice(0, 8);
+}
+
+function schoolBrief(p: Analysis["schools"][number]) {
+  return {
+    school: p.school,
+    district: p.district,
+    mean_pct: r1(p.mean),
+    vs_expected_pp: r1(p.valueAdded),
+    sections_below_expected: p.sections.filter((s) => s.flag === "below").map((s) => s.section),
+    sections_above_expected: p.sections.filter((s) => s.flag === "above").map((s) => s.section),
   };
 }
 
@@ -111,7 +133,30 @@ export function buildReport(a: Analysis, ctx: ReportContext): string {
     );
   }
 
-  L.push(`## 3. Эффективность учебников`);
+  L.push(`## 3. Школы: где нужна поддержка и чей опыт тиражировать`);
+  const weak = schoolList(a, "below");
+  const strong = schoolList(a, "above");
+  if (!weak.length && !strong.length) L.push(`Существенных различий между школами с учётом состава учеников не выявлено.`);
+  else {
+    L.push(
+      `Школы сравниваются не по сырым баллам, а с ожидаемым результатом для их учеников (стартовый уровень, город/село, учебник). Ниже ожидаемого — ${nSchools(
+        a.schools.filter((p) => p.vaFlag === "below").length,
+      )}, выше — ${nSchools(a.schools.filter((p) => p.vaFlag === "above").length)}.`,
+    );
+    for (const p of weak.slice(0, 5)) {
+      const secs = p.sections.filter((s) => s.flag === "below").map((s) => `«${s.section}»`);
+      L.push(`- **${p.school}** (${p.district}): ${pp(p.valueAdded)} к ожидаемому${secs.length ? `; проседают ${secs.join(", ")}` : ""}.`);
+    }
+    if (strong.length)
+      L.push(
+        `Опорные школы для обмена опытом: ${strong
+          .slice(0, 5)
+          .map((p) => `${p.school} (${p.district}, ${pp(p.valueAdded)})`)
+          .join("; ")}.`,
+      );
+  }
+
+  L.push(`## 4. Эффективность учебников`);
   const tb = a.textbooks;
   if (!tb.ok) L.push(`Недостаточно данных для сравнения учебников (нужно минимум 2 учебника, на каждый — от 3 школ).`);
   else {
@@ -132,7 +177,7 @@ export function buildReport(a: Analysis, ctx: ReportContext): string {
       L.push(`- Слабая глава: «${l.textbook}» в разделе «${l.section}» — ${pp(l.diffVsBest)} к лучшему учебнику при равном составе учеников.`);
   }
 
-  L.push(`## 4. Рекомендации по распределению учебных часов`);
+  L.push(`## 5. Рекомендации по распределению учебных часов`);
   const h = a.hours;
   if (!h.ok) L.push(`Нет данных о фактических часах по классам — рекомендации по часам недоступны.`);
   else {
@@ -146,7 +191,7 @@ export function buildReport(a: Analysis, ctx: ReportContext): string {
     );
   }
 
-  L.push(`## 5. План действий на следующую четверть`);
+  L.push(`## 6. План действий на следующую четверть`);
   let n = 1;
   const root = a.prereqs.find((l) => a.sections.find((s) => s.name === l.to)?.status === "hard");
   if (root)
@@ -164,15 +209,25 @@ export function buildReport(a: Analysis, ctx: ReportContext): string {
         .map((s) => `«${s.school}»`)
         .join(", ")}.`,
     );
+  // от самой отстающей школы к менее отстающим
+  const broad = a.schools.filter((p) => p.vaFlag === "below" && p.sections.filter((s) => s.flag === "below").length >= 3).reverse();
+  if (broad.length)
+    L.push(
+      `${n++}. Закрепить методиста и организовать наставничество для школ с отставанием по большинству разделов: ${broad
+        .slice(0, 5)
+        .map((p) => `«${p.school}»`)
+        .join(", ")}.`,
+    );
   if (h.ok && h.movedHours > 0)
     L.push(`${n++}. Апробировать новое распределение часов в 5–10 школах и сравнить результаты следующего СОР с остальными школами.`);
   L.push(`${n++}. Повторить анализ после следующего СОР и отследить динамику.`);
 
-  L.push(`## 6. Ограничения`);
+  L.push(`## 7. Ограничения`);
   L.push(
     `- Учебники выбираются школами не случайно. Мы учитываем стартовый уровень учеников, тип местности и язык обучения, но другие различия между школами могут влиять на результат.`,
   );
   L.push(`- Эффект часов оценён по естественным различиям между классами; прогноз нужно подтвердить пилотом.`);
+  L.push(`- Оценка школ относительно ожидаемого — инструмент адресной поддержки и обмена опытом, а не основание для взысканий.`);
   if (ctx.synthetic) L.push(`- Все цифры получены на синтетических демо-данных и не описывают реальные школы.`);
   return L.join("\n\n");
 }

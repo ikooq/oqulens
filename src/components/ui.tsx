@@ -41,9 +41,13 @@ const TONES = {
   violet: "bg-violet-50 text-violet-700 ring-violet-200",
 };
 
-export function Badge({ tone = "gray", children }: { tone?: keyof typeof TONES; children: ReactNode }) {
+export function Badge({ tone = "gray", wrap = false, children }: { tone?: keyof typeof TONES; wrap?: boolean; children: ReactNode }) {
   return (
-    <span className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[11.5px] font-semibold ring-1 ring-inset ${TONES[tone]}`}>
+    <span
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11.5px] font-semibold ring-1 ring-inset ${
+        wrap ? "max-w-full whitespace-normal" : "whitespace-nowrap"
+      } ${TONES[tone]}`}
+    >
       {children}
     </span>
   );

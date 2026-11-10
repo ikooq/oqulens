@@ -153,6 +153,53 @@ export interface HeatCell {
   n: number;
 }
 
+export type Flag = "below" | "above" | "none";
+
+export interface SchoolSection {
+  section: string;
+  n: number;
+  mean: number;
+  /** ожидаемый результат при таком составе учеников и учебнике */
+  expected: number;
+  /** отклонение от ожидаемого после осторожного сдвига к среднему (п.п.) */
+  residual: number;
+  sd: number;
+  flag: Flag;
+  /** фактические часы на раздел (в среднем по классам школы) */
+  hours: number;
+}
+
+export interface SchoolMentor {
+  school: string;
+  district: string;
+  residual: number;
+  sameDistrict: boolean;
+  sameTextbook: boolean;
+}
+
+export interface SchoolProfile {
+  school: string;
+  district: string;
+  urban: boolean;
+  language: "каз" | "рус" | "смеш";
+  textbooks: string[];
+  nStudents: number;
+  nClasses: number;
+  mean: number;
+  expected: number;
+  lowShare: number;
+  baseline: number;
+  /** результат относительно ожидаемого по всем разделам (п.п.) */
+  valueAdded: number;
+  vaLo: number;
+  vaHi: number;
+  vaFlag: Flag;
+  rank: number;
+  sections: SchoolSection[];
+  /** раздел → школы, у которых этот раздел получается лучше ожидаемого */
+  mentors: Record<string, SchoolMentor[]>;
+}
+
 export interface Insight {
   tab: "sections" | "textbooks" | "hours";
   tone: "risk" | "info" | "good";
@@ -179,6 +226,7 @@ export interface Analysis {
   prereqs: PrereqLink[];
   textbooks: TextbookAnalysis;
   hours: HoursPlan;
+  schools: SchoolProfile[];
   insights: Insight[];
   /** для симулятора «что если» */
   forecast: (hours: number[]) => { perSection: number[]; mean: number; lowShare: number };
@@ -299,6 +347,8 @@ export function analyze(rows: Row[]): Analysis | null {
   const overallLevels = levelsOf(allPct);
 
   // ---- Статистика по разделам
+  const schoolSecRaw = new Map<string, Map<string, { pct: number[]; res: number[] }>>();
+  const studentRes = new Map<string, number[]>();
   const sectionStats: SectionStat[] = sections.map((sec) => {
     const sts = studentList.filter((st) => Number.isFinite(st.pct[sec.name]));
     const vals = sts.map((st) => st.pct[sec.name]);
@@ -310,6 +360,17 @@ export function analyze(rows: Row[]): Analysis | null {
       sts.map((st) => st.urban),
       ...textbooks.slice(1).map((t) => sts.map((st) => (st.textbook === t ? 1 : 0))),
     ]);
+    sts.forEach((st, i) => {
+      let m = schoolSecRaw.get(st.school);
+      if (!m) schoolSecRaw.set(st.school, (m = new Map()));
+      let e = m.get(sec.name);
+      if (!e) m.set(sec.name, (e = { pct: [], res: [] }));
+      e.pct.push(st.pct[sec.name]);
+      e.res.push(resid[i]);
+      const sr = studentRes.get(st.id);
+      if (sr) sr.push(resid[i]);
+      else studentRes.set(st.id, [resid[i]]);
+    });
     const bySchool = groupBy(
       sts.map((st, i) => ({ st, r: resid[i] })),
       (x) => x.st.school,
@@ -413,6 +474,9 @@ export function analyze(rows: Row[]): Analysis | null {
   // ---- Учебные часы
   const { plan: hoursPlan, forecast } = planHours(studentList, classList, sections, sectionStats, prereqs, textbooks);
 
+  // ---- Профили школ: результат относительно ожидаемого при их составе учеников
+  const schools = buildSchoolProfiles(studentList, classList, sections, schoolSecRaw, studentRes, schoolDistrict);
+
   const analysis: Analysis = {
     meta: {
       nStudents: studentList.length,
@@ -437,11 +501,160 @@ export function analyze(rows: Row[]): Analysis | null {
     prereqs,
     textbooks: textbookAnalysis,
     hours: hoursPlan,
+    schools,
     insights: [],
     forecast,
   };
   analysis.insights = buildInsights(analysis);
   return analysis;
+}
+
+// ---------------------------------------------------------------- школы
+
+/**
+ * Осторожная оценка отклонений: у небольших школ случайный разброс велик,
+ * поэтому их отклонение сдвигается к нулю пропорционально надёжности
+ * (эмпирический Байес). Возвращает оценку и её погрешность.
+ */
+function shrink(items: { raw: number; se: number }[]) {
+  const ok = items.filter((x) => Number.isFinite(x.raw) && Number.isFinite(x.se) && x.se > 0);
+  const tau2 = ok.length > 2 ? Math.max(0, variance(ok.map((x) => x.raw)) - mean(ok.map((x) => x.se ** 2))) : 0;
+  return items.map((x) => {
+    if (!Number.isFinite(x.raw) || !Number.isFinite(x.se) || x.se <= 0) return { est: NaN, sd: NaN };
+    const b = tau2 / (tau2 + x.se ** 2);
+    return { est: b * x.raw, sd: Math.sqrt(b) * x.se };
+  });
+}
+
+const flagOf = (est: number, sd: number, min: number): Flag =>
+  !Number.isFinite(est) || !Number.isFinite(sd)
+    ? "none"
+    : est <= -min && est + Z * sd < 0
+      ? "below"
+      : est >= min && est - Z * sd > 0
+        ? "above"
+        : "none";
+
+function buildSchoolProfiles(
+  students: Student[],
+  classes: ClassInfo[],
+  sections: SectionInfo[],
+  raw: Map<string, Map<string, { pct: number[]; res: number[] }>>,
+  studentRes: Map<string, number[]>,
+  schoolDistrict: Map<string, string>,
+): SchoolProfile[] {
+  const secNames = sections.map((s) => s.name);
+  const bySchool = groupBy(students, (s) => s.school);
+  const classesBySchool = groupBy(classes, (c) => c.school);
+  const names = [...bySchool.keys()];
+
+  // Отклонения по разделам, с осторожным сдвигом к среднему внутри каждого раздела
+  const secEst = new Map<string, Map<string, { raw: number; est: number; sd: number; n: number; mean: number }>>();
+  for (const sec of secNames) {
+    const items = names.map((sch) => {
+      const e = raw.get(sch)?.get(sec);
+      if (!e || e.res.length < 5) return { sch, raw: NaN, se: NaN, n: e?.res.length ?? 0, mean: e ? mean(e.pct) : NaN };
+      return { sch, raw: mean(e.res), se: sd(e.res) / Math.sqrt(e.res.length), n: e.res.length, mean: mean(e.pct) };
+    });
+    const sh = shrink(items);
+    items.forEach((it, i) => {
+      let m = secEst.get(it.sch);
+      if (!m) secEst.set(it.sch, (m = new Map()));
+      m.set(sec, { raw: it.raw, est: sh[i].est, sd: sh[i].sd, n: it.n, mean: it.mean });
+    });
+  }
+
+  // Общий результат относительно ожидаемого (по всем разделам)
+  const vaItems = names.map((sch) => {
+    const per = bySchool
+      .get(sch)!
+      .map((st) => studentRes.get(st.id) ?? [])
+      .filter((r) => r.length > 0)
+      .map((r) => mean(r));
+    return per.length >= 5 ? { raw: mean(per), se: sd(per) / Math.sqrt(per.length) } : { raw: NaN, se: NaN };
+  });
+  const vaSh = shrink(vaItems);
+
+  const profiles: SchoolProfile[] = names.map((sch, i) => {
+    const sts = bySchool.get(sch)!;
+    const cls = classesBySchool.get(sch) ?? [];
+    const overall = sts
+      .map((st) => {
+        const v = secNames.map((s) => st.pct[s]).filter(Number.isFinite);
+        return v.length ? mean(v) : NaN;
+      })
+      .filter(Number.isFinite);
+    const allVals = sts.flatMap((st) => secNames.map((s) => st.pct[s]).filter(Number.isFinite));
+    const rusShare = mean(sts.map((st) => st.rus));
+    const schoolMean = mean(overall);
+    return {
+      school: sch,
+      district: schoolDistrict.get(sch) ?? "",
+      urban: mean(sts.map((st) => st.urban)) >= 0.5,
+      language: rusShare >= 0.95 ? "рус" : rusShare <= 0.05 ? "каз" : "смеш",
+      textbooks: [...new Set(sts.map((st) => st.textbook))].sort((a, b) => a.localeCompare(b, "ru")),
+      nStudents: sts.length,
+      nClasses: cls.length,
+      mean: schoolMean,
+      expected: Number.isFinite(vaItems[i].raw) ? schoolMean - vaItems[i].raw : NaN,
+      lowShare: allVals.length ? allVals.filter((v) => v < 40).length / allVals.length : NaN,
+      baseline: mean(sts.map((st) => st.baseline)),
+      valueAdded: vaSh[i].est,
+      vaLo: vaSh[i].est - Z * vaSh[i].sd,
+      vaHi: vaSh[i].est + Z * vaSh[i].sd,
+      vaFlag: flagOf(vaSh[i].est, vaSh[i].sd, 3),
+      rank: 0,
+      sections: sections.map((sec) => {
+        const e = secEst.get(sch)?.get(sec.name);
+        const hs = cls.map((c) => c.hours[sec.name]).filter(Number.isFinite);
+        return {
+          section: sec.name,
+          n: e?.n ?? 0,
+          mean: e?.mean ?? NaN,
+          expected: e && Number.isFinite(e.raw) ? e.mean - e.raw : NaN,
+          residual: e?.est ?? NaN,
+          sd: e?.sd ?? NaN,
+          flag: e ? flagOf(e.est, e.sd, 5) : "none",
+          hours: hs.length ? mean(hs) : NaN,
+        };
+      }),
+      mentors: {},
+    };
+  });
+
+  // Место по результату относительно ожидаемого
+  [...profiles]
+    .filter((p) => Number.isFinite(p.valueAdded))
+    .sort((a, b) => b.valueAdded - a.valueAdded)
+    .forEach((p, k) => (p.rank = k + 1));
+
+  // Школы-наставники: у кого «проседающий» раздел получается лучше ожидаемого
+  for (const p of profiles) {
+    for (const s of p.sections) {
+      if (s.flag !== "below") continue;
+      const cands = profiles
+        .filter((q) => q !== p)
+        .map((q) => ({ q, s: q.sections.find((x) => x.section === s.section)! }))
+        .filter((x) => x.s.flag === "above");
+      p.mentors[s.section] = cands
+        .map(({ q, s: qs }) => ({
+          school: q.school,
+          district: q.district,
+          residual: qs.residual,
+          sameDistrict: q.district === p.district,
+          sameTextbook: q.textbooks.some((t) => p.textbooks.includes(t)),
+        }))
+        .sort(
+          (a, b) =>
+            Number(b.sameDistrict) - Number(a.sameDistrict) ||
+            Number(b.sameTextbook) - Number(a.sameTextbook) ||
+            b.residual - a.residual,
+        )
+        .slice(0, 3);
+    }
+  }
+
+  return profiles.sort((a, b) => (a.rank || 1e9) - (b.rank || 1e9));
 }
 
 // ---------------------------------------------------------------- учебники

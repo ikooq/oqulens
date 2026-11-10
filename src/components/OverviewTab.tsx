@@ -1,6 +1,21 @@
-import { AlertTriangle, ArrowRight, CheckCircle2, Lightbulb, School, Target, TrendingDown, Users } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowRight,
+  CheckCircle2,
+  ClipboardCheck,
+  FlaskConical,
+  Info,
+  Lightbulb,
+  School,
+  Target,
+  TrendingDown,
+  Users,
+  XCircle,
+} from "lucide-react";
 import { Analysis, Insight } from "@/lib/analytics";
 import { int, nClasses, nDistricts, pct, share } from "@/lib/format";
+import { DataQuality, DemoTruth } from "@/lib/types";
+import { validateDemo } from "@/lib/validation";
 import { Card, Kpi, LevelBar, LevelLegend, StatusBadge } from "./ui";
 import type { Tab } from "./App";
 
@@ -16,9 +31,20 @@ const TAB_LABEL: Record<Insight["tab"], string> = {
   hours: "К часам",
 };
 
-export default function OverviewTab({ a, go }: { a: Analysis; go: (t: Tab) => void }) {
+export default function OverviewTab({
+  a,
+  go,
+  truth,
+  quality,
+}: {
+  a: Analysis;
+  go: (t: Tab) => void;
+  truth?: DemoTruth;
+  quality?: DataQuality;
+}) {
   return (
     <div className="space-y-6">
+      {quality && <QualityCard q={quality} />}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Kpi icon={<Users size={15} />} label="Учащихся" value={int(a.meta.nStudents)} sub={nClasses(a.meta.nClasses)} />
         <Kpi icon={<School size={15} />} label="Школ" value={a.meta.nSchools} sub={nDistricts(a.meta.nDistricts)} />
@@ -77,6 +103,78 @@ export default function OverviewTab({ a, go }: { a: Analysis; go: (t: Tab) => vo
           ))}
         </div>
       </Card>
+
+      {truth && <ValidationCard a={a} truth={truth} />}
     </div>
+  );
+}
+
+function QualityCard({ q }: { q: DataQuality }) {
+  const warn = q.checks.filter((c) => c.level === "warn").length;
+  return (
+    <Card
+      title={
+        <span className="inline-flex items-center gap-2">
+          <ClipboardCheck size={17} className="text-brand" /> Качество данных
+        </span>
+      }
+      subtitle={warn ? `Замечаний: ${warn}. Анализ выполнен, но учтите их при чтении выводов.` : "Файл прочитан без замечаний."}
+    >
+      <ul className="space-y-2">
+        {q.checks.map((c, i) => (
+          <li key={i} className="flex items-start gap-2.5 text-[13px] leading-relaxed text-slate-700">
+            {c.level === "ok" ? (
+              <CheckCircle2 size={16} className="mt-0.5 shrink-0 text-emerald-600" />
+            ) : c.level === "warn" ? (
+              <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-600" />
+            ) : (
+              <Info size={16} className="mt-0.5 shrink-0 text-sky-600" />
+            )}
+            {c.text}
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
+function ValidationCard({ a, truth }: { a: Analysis; truth: DemoTruth }) {
+  const checks = validateDemo(a, truth);
+  const ok = checks.filter((c) => c.ok).length;
+  return (
+    <Card
+      title={
+        <span className="inline-flex items-center gap-2">
+          <FlaskConical size={17} className="text-brand" /> Проверка метода на известном ответе
+        </span>
+      }
+      subtitle={`В демо-данные заранее заложены закономерности. Платформа ищет их сама, не зная ответа: найдено ${ok} из ${checks.length}.`}
+    >
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[680px] text-[13px]">
+          <thead>
+            <tr className="border-b border-line text-left text-[12px] text-muted">
+              <th className="py-2 pr-3 font-semibold">Что проверяем</th>
+              <th className="py-2 pr-3 font-semibold">Заложено в данные</th>
+              <th className="py-2 font-semibold">Нашла платформа</th>
+            </tr>
+          </thead>
+          <tbody>
+            {checks.map((c) => (
+              <tr key={c.title} className="border-b border-line/70 last:border-0">
+                <td className="py-2.5 pr-3 font-semibold text-slate-800">
+                  <span className="inline-flex items-center gap-2">
+                    {c.ok ? <CheckCircle2 size={16} className="shrink-0 text-emerald-600" /> : <XCircle size={16} className="shrink-0 text-red-600" />}
+                    {c.title}
+                  </span>
+                </td>
+                <td className="py-2.5 pr-3 text-slate-600">{c.planted}</td>
+                <td className="py-2.5 text-slate-800">{c.found}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
   );
 }

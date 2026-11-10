@@ -183,7 +183,9 @@ export default function TextbooksTab({ a }: { a: Analysis }) {
           </div>
         )}
         <div className="mt-4 flex flex-wrap gap-2">
-          <Badge tone="gray">Модель: результат ~ учебник + стартовый уровень + город/село + язык обучения</Badge>
+          <Badge tone="gray" wrap>
+            Модель: результат ~ учебник + стартовый уровень + город/село + язык обучения
+          </Badge>
           <Badge tone="gray">Ошибки кластеризованы по школам</Badge>
           <Badge tone="gray">95% доверительные интервалы</Badge>
         </div>

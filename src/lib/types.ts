@@ -24,6 +24,26 @@ export interface Dataset {
   region: string;
   synthetic: boolean;
   rows: Row[];
+  /** Только для демо: что заложено в генератор (для проверки метода). */
+  truth?: DemoTruth;
+  /** Только для загруженных данных: результат проверки файла. */
+  quality?: DataQuality;
+}
+
+export interface DataQuality {
+  checks: { level: "ok" | "warn" | "info"; text: string }[];
+}
+
+/** Истинные закономерности синтетических данных. */
+export interface DemoTruth {
+  hardest: string;
+  prereqs: { from: string; to: string; strength: number }[];
+  bestTextbook: string;
+  lag: { textbook: string; section: string };
+  hoursPriority: string[];
+  uneven: string;
+  /** Истинный вклад школы (логит-шкала): общий и по разделам. */
+  schoolEffect: Record<string, { overall: number; bySection: Record<string, number> }>;
 }
 
 export interface Filters {
