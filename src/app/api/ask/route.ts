@@ -2,7 +2,7 @@
 // В модель уходят только агрегированные показатели (без данных отдельных учеников).
 // Провайдер: Claude или бесплатный Gemini (см. lib/llm). Без ключей возвращает 503,
 // и интерфейс предлагает готовые вопросы с ответами из расчётов.
-import { activeProvider, complete, LlmError, Turn } from "@/lib/llm";
+import { activeProvider, compactSummary, complete, LlmError, Turn } from "@/lib/llm";
 import { errorResponse } from "@/lib/llmErrors";
 
 export const runtime = "nodejs";
@@ -45,7 +45,8 @@ export async function POST(req: Request) {
   if (!question || !body.summary || typeof body.summary !== "object") {
     return Response.json({ error: "bad_request", message: t("Нет вопроса или сводки анализа.", "Сұрақ немесе талдау қорытындысы жоқ.") }, { status: 400 });
   }
-  const summaryJson = JSON.stringify(body.summary);
+  // Бесплатным моделям отдаём сжатую сводку: у них небольшой лимит токенов
+  const summaryJson = JSON.stringify(activeProvider() === "claude" ? body.summary : compactSummary(body.summary));
   if (summaryJson.length > 60_000) {
     return Response.json({ error: "too_large", message: t("Сводка слишком большая.", "Қорытынды тым үлкен.") }, { status: 413 });
   }

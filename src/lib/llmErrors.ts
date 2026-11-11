@@ -10,8 +10,8 @@ export function errorResponse(error: unknown, lang: "ru" | "kk") {
         {
           error: "no_key",
           message: t(
-            "ИИ-модуль не настроен: на сервере нет ключа (GEMINI_API_KEY — бесплатно, или ANTHROPIC_API_KEY).",
-            "ИИ-модуль бапталмаған: серверде кілт жоқ (GEMINI_API_KEY — тегін, немесе ANTHROPIC_API_KEY).",
+            "ИИ-модуль не настроен: на сервере нет ключа (GROQ_API_KEY или GEMINI_API_KEY — бесплатно, ANTHROPIC_API_KEY — платно).",
+            "ИИ-модуль бапталмаған: серверде кілт жоқ (GROQ_API_KEY немесе GEMINI_API_KEY — тегін, ANTHROPIC_API_KEY — ақылы).",
           ),
         },
         { status: 503 },

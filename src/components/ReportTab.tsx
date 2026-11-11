@@ -70,7 +70,7 @@ export default function ReportTab({ a, ctx }: { a: Analysis; ctx: ReportContext 
                     {
                       value: "ai" as Source,
                       label: `${ai.lang === "kk" ? t("ИИ-записка (қаз)", "ИИ-жазба (қаз)") : t("ИИ-записка", "ИИ-жазба (орыс)")} · ${
-                        ai.provider === "gemini" ? "Gemini" : "Claude"
+                        ai.provider === "gemini" ? "Gemini" : ai.provider === "groq" ? "Groq" : "Claude"
                       }`,
                     },
                   ]

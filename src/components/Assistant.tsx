@@ -14,7 +14,7 @@ type Msg = {
   role: "user" | "assistant";
   text: string;
   source?: "rules" | "ai" | "notice";
-  provider?: "claude" | "gemini";
+  provider?: "claude" | "gemini" | "groq";
   tab?: TabId;
   school?: string;
   actionLabel?: string;
@@ -178,7 +178,7 @@ export default function Assistant({
                         <span className="inline-flex items-center gap-1 text-[11px] font-medium text-muted">
                           {m.source === "ai" ? <Sparkles size={12} /> : <Calculator size={12} />}
                           {m.source === "ai"
-                            ? `${t("Ответ ИИ", "ИИ жауабы")} (${m.provider === "gemini" ? "Gemini" : "Claude"})`
+                            ? `${t("Ответ ИИ", "ИИ жауабы")} (${m.provider === "gemini" ? "Gemini" : m.provider === "groq" ? "Groq" : "Claude"})`
                             : t("Ответ из расчётов", "Есептеулерден алынған жауап")}
                         </span>
                       )}
