@@ -1,8 +1,9 @@
 // Импорт/экспорт CSV. Принимает заголовки на английском, русском или казахском.
 import Papa from "papaparse";
 import { DataQuality, Dataset, Row } from "./types";
-import { makeFmt } from "./format";
+import { makeFmt, plural } from "./format";
 import { Lang, tr } from "./i18n";
+import { wideToLong } from "./journal";
 
 export const COLUMNS: {
   key: keyof Row;
@@ -16,11 +17,11 @@ export const COLUMNS: {
   aliases?: string[];
 }[] = [
   { key: "district", csv: "district", ru: "район", kk: "аудан", required: false, hint: "Район / город", hintKk: "Аудан / қала" },
-  { key: "school", csv: "school", ru: "школа", kk: "мектеп", required: true, hint: "Название или код школы", hintKk: "Мектептің атауы немесе коды" },
+  { key: "school", csv: "school", ru: "школа", kk: "мектеп", required: true, hint: "Название или код школы", hintKk: "Мектептің атауы немесе коды", aliases: ["организация_образования", "школа_№", "school_name"] },
   { key: "locality", csv: "locality", ru: "местность", kk: "елді_мекен", required: false, hint: "город / село", hintKk: "қала / ауыл" },
   { key: "language", csv: "language", ru: "язык", kk: "тіл", required: false, hint: "каз / рус", hintKk: "қаз / орыс" },
-  { key: "classId", csv: "class_id", ru: "класс", kk: "сынып", required: true, hint: "Уникальный код класса", hintKk: "Сыныптың бірегей коды" },
-  { key: "studentId", csv: "student_id", ru: "ученик", kk: "оқушы", required: true, hint: "Обезличенный ID ученика", hintKk: "Оқушының иесіздендірілген ID-і" },
+  { key: "classId", csv: "class_id", ru: "класс", kk: "сынып", required: true, hint: "Уникальный код класса", hintKk: "Сыныптың бірегей коды", aliases: ["class", "класс_литер"] },
+  { key: "studentId", csv: "student_id", ru: "ученик", kk: "оқушы", required: true, hint: "Обезличенный ID ученика", hintKk: "Оқушының иесіздендірілген ID-і", aliases: ["фио", "ф.и.о.", "фио_ученика", "ученик_фио", "аты-жөні", "аты_жөні", "оқушының_аты-жөні", "student"] },
   { key: "textbook", csv: "textbook", ru: "учебник", kk: "оқулық", required: true, hint: "Учебник, по которому учится класс", hintKk: "Сынып оқитын оқулық" },
   { key: "section", csv: "section", ru: "раздел", kk: "бөлім", required: true, hint: "Раздел учебной программы (СОР)", hintKk: "Оқу бағдарламасының бөлімі (БЖБ)" },
   { key: "sectionOrder", csv: "section_order", ru: "номер_раздела", kk: "бөлім_нөмірі", required: false, hint: "Порядковый номер раздела", hintKk: "Бөлімнің реттік нөмірі" },
@@ -63,6 +64,20 @@ export function parseRecords(data: Record<string, string>[], fields: string[], n
   const t = (ru: string, kk: string) => tr(lang, ru, kk);
   const errors: string[] = [];
   const warnings: string[] = [];
+  // Таблица «как в журнале» (ученики × СОР) разворачивается в длинный формат
+  const wide = wideToLong(
+    data,
+    fields,
+    name,
+    COLUMNS.map((c) => ({ csv: c.csv, names: [c.csv, c.ru, c.kk, ...(c.aliases ?? [])] })),
+    lang,
+  );
+  if (wide?.errors.length) return { errors: wide.errors, warnings };
+  if (wide) {
+    data = wide.data;
+    fields = wide.fields;
+  }
+  const notes = wide?.notes ?? [];
   const headers = fields.map((h) => [h, norm(h)] as const);
   const colOf = new Map<keyof Row, string>();
   for (const c of COLUMNS) {
@@ -76,7 +91,7 @@ export function parseRecords(data: Record<string, string>[], fields: string[], n
   }
   if (errors.length) return { errors, warnings };
   for (const c of COLUMNS)
-    if (!c.required && !colOf.has(c.key) && c.key !== "period")
+    if (!c.required && !colOf.has(c.key) && c.key !== "period" && !(wide && c.key === "sectionOrder"))
       warnings.push(t(`Столбец «${c.ru}» не найден — часть анализа будет ограничена.`, `«${c.kk}» бағаны табылмады — талдаудың бір бөлігі шектеледі.`));
 
   const num = (v: string | undefined) => {
@@ -149,6 +164,7 @@ export function parseRecords(data: Record<string, string>[], fields: string[], n
   const quality = errors.length
     ? undefined
     : buildQuality(rows, { total: data.length, bad, noId, clamped, baselineMissing, hoursMissing, duplicates, colOf }, lang);
+  if (quality) quality.checks.splice(1, 0, ...notes.map((text) => ({ level: "info" as const, text })));
 
   return {
     errors,
@@ -276,6 +292,38 @@ function buildQuality(
   if (checks.length === 1)
     checks.push({ level: "ok", text: t("Пропусков, повторов и ошибок в баллах не найдено.", "Бос орындар, қайталанулар және балдағы қателер табылмады.") });
   return { checks };
+}
+
+/** Несколько файлов (например, по классу или по школе в каждом) — в один набор данных. */
+export function mergeDatasets(parts: { file: string; dataset: Dataset }[], lang: Lang = "ru"): Dataset {
+  if (parts.length === 1) return parts[0].dataset;
+  const t = (ru: string, kk: string) => tr(lang, ru, kk);
+  const rows = parts.flatMap((p) => p.dataset.rows);
+  const f = makeFmt(lang);
+  const students = new Set(rows.map((r) => r.studentId)).size;
+  const schools = new Set(rows.map((r) => r.school)).size;
+  const classes = new Set(rows.map((r) => r.classId)).size;
+  const checks: DataQuality["checks"] = [
+    {
+      level: "ok",
+      text: t(
+        `Объединено файлов: ${parts.length} — ${f.nStudents(students)}, ${f.nSchools(schools)}, ${f.nClasses(classes)}.`,
+        `Біріктірілген файлдар: ${parts.length} — ${f.nStudents(students)}, ${f.nSchools(schools)}, ${f.nClasses(classes)}.`,
+      ),
+    },
+  ];
+  for (const p of parts)
+    for (const c of p.dataset.quality?.checks ?? [])
+      if (c.level !== "ok" || p === parts[0]) checks.push({ level: c.level, text: `«${p.file}»: ${c.text}` });
+  return {
+    name: t(`Загруженные данные (${parts.length} ${plural(parts.length, ["файл", "файла", "файлов"])})`, `Жүктелген деректер (${parts.length} файл)`),
+    subject: "",
+    grade: "",
+    region: "",
+    synthetic: false,
+    rows,
+    quality: { checks },
+  };
 }
 
 /** Таблица для Excel: заголовки на языке интерфейса (их понимает и импорт). */

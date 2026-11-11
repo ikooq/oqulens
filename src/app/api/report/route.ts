@@ -3,6 +3,7 @@
 // Без ключей возвращает 503, и интерфейс показывает детерминированную записку.
 import { activeProvider, compactSummary, complete, LlmError } from "@/lib/llm";
 import { errorResponse } from "@/lib/llmErrors";
+import { guard } from "@/lib/rateLimit";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -51,6 +52,8 @@ export async function POST(req: Request) {
   }
   const lang = body.lang === "kk" ? "kk" : "ru";
   if (!activeProvider()) return errorResponse(new LlmError("no_key", "no key"), lang);
+  const blocked = guard(req, "report", lang);
+  if (blocked) return blocked;
   if (!body.summary || typeof body.summary !== "object") {
     return Response.json({ error: "bad_request", message: "Нет сводки анализа." }, { status: 400 });
   }

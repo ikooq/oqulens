@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { analyze, applyFilters } from "@/lib/analytics";
 import { analyzeDynamics } from "@/lib/dynamics";
-import { columnsHelpRows, downloadText, ParseResult, parseCsv, toCsv, toSheetRows } from "@/lib/csv";
+import { columnsHelpRows, downloadText, mergeDatasets, ParseResult, parseCsv, toCsv, toSheetRows } from "@/lib/csv";
 import { parseXlsx } from "@/lib/xlsx";
 import { downloadXlsx } from "@/lib/xlsxWriter";
 import { generateDemo, isRegionCenter } from "@/lib/generator";
@@ -95,6 +95,25 @@ export default function App() {
   const t = (ru: string, kk: string) => tr(lang, ru, kk);
   const f = makeFmt(lang);
 
+  // Файлы можно перетащить в окно — в любом месте приложения
+  const onFilesRef = useRef<(l: FileList | null) => void>(() => {});
+  useEffect(() => {
+    const over = (e: DragEvent) => {
+      if (e.dataTransfer?.types.includes("Files")) e.preventDefault();
+    };
+    const drop = (e: DragEvent) => {
+      if (!e.dataTransfer?.files.length) return;
+      e.preventDefault();
+      onFilesRef.current(e.dataTransfer.files);
+    };
+    window.addEventListener("dragover", over);
+    window.addEventListener("drop", drop);
+    return () => {
+      window.removeEventListener("dragover", over);
+      window.removeEventListener("drop", drop);
+    };
+  }, []);
+
   const setTab = (tb: Tab) => {
     setTabState(tb);
     window.scrollTo({ top: 0 });
@@ -168,8 +187,7 @@ export default function App() {
     setTourOpen(withTour);
   };
 
-  const onFile = async (file: File | undefined) => {
-    if (!file) return;
+  const parseFile = async (file: File): Promise<ParseResult> => {
     const lower = file.name.toLowerCase();
     let res: ParseResult;
     if (lower.endsWith(".xls")) {
@@ -187,10 +205,25 @@ export default function App() {
     } else {
       res = parseCsv(await file.text(), file.name, lang);
     }
-    if (!res.dataset) {
-      setMessages(res.errors.map((text) => ({ tone: "error" as const, text })));
+    return res;
+  };
+
+  const onFiles = async (list: FileList | null | undefined) => {
+    const files = [...(list ?? [])];
+    if (!files.length) return;
+    const parsed = await Promise.all(files.map(async (file) => ({ file: file.name, res: await parseFile(file) })));
+    const failed = parsed.filter((p) => !p.res.dataset);
+    if (failed.length) {
+      setMessages(
+        failed.flatMap((p) => p.res.errors.map((text) => ({ tone: "error" as const, text: files.length > 1 ? `«${p.file}»: ${text}` : text }))),
+      );
       return;
     }
+    const merged = mergeDatasets(
+      parsed.map((p) => ({ file: p.file, dataset: p.res.dataset! })),
+      lang,
+    );
+    const res = { dataset: merged };
     setDataset(res.dataset);
     setFilters(ALL);
     setSchool(undefined);
@@ -211,6 +244,8 @@ export default function App() {
         : [],
     );
   };
+
+  onFilesRef.current = onFiles;
 
   const title = dataset ? (dataset.synthetic ? `${dataset.subject}, ${dataset.grade} — ${dataset.region}` : dataset.name) : "";
   const scope = [
@@ -235,10 +270,11 @@ export default function App() {
     <input
       ref={fileRef}
       type="file"
+      multiple
       accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
       className="hidden"
       onChange={(e) => {
-        onFile(e.target.files?.[0]);
+        onFiles(e.target.files);
         e.target.value = "";
       }}
     />

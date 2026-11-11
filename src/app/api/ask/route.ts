@@ -4,6 +4,7 @@
 // и интерфейс предлагает готовые вопросы с ответами из расчётов.
 import { activeProvider, compactSummary, complete, LlmError, Turn } from "@/lib/llm";
 import { errorResponse } from "@/lib/llmErrors";
+import { guard } from "@/lib/rateLimit";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -43,6 +44,8 @@ export async function POST(req: Request) {
   const t = (ru: string, kk: string) => (lang === "kk" ? kk : ru);
 
   if (!activeProvider()) return errorResponse(new LlmError("no_key", "no key"), lang);
+  const blocked = guard(req, "ask", lang);
+  if (blocked) return blocked;
   const question = typeof body.question === "string" ? body.question.trim().slice(0, 1000) : "";
   if (!question || !body.summary || typeof body.summary !== "object") {
     return Response.json({ error: "bad_request", message: t("Нет вопроса или сводки анализа.", "Сұрақ немесе талдау қорытындысы жоқ.") }, { status: 400 });

@@ -1,14 +1,41 @@
 // Выгружает демо-данные в CSV (public/demo) и проверяет, что импорт CSV и Excel
 // даёт тот же результат анализа, что и данные в памяти.
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { generateDemo } from "../src/lib/generator";
 import { columnsHelpRows, parseCsv, toCsv, toSheetRows } from "../src/lib/csv";
 import { parseXlsx } from "../src/lib/xlsx";
 import { buildXlsx } from "../src/lib/xlsxWriter";
 import { analyze, Analysis } from "../src/lib/analytics";
 
+const SURNAMES = ["Ахметов", "Серікова", "Жұмабаев", "Иванова", "Нұрланов", "Бекова", "Ким", "Оспанов", "Сапарова", "Тоқтаров", "Петров", "Әлиева"];
+
+/** Пример «как в журнале»: строки — ученики (вымышленные ФИО), столбцы — СОР с максимальным баллом. */
+function journalExample(ds: ReturnType<typeof generateDemo>) {
+  const cur = ds.rows.filter((r) => r.period === "2025–2026" && (r.school === "Школа 01" || r.school === "Школа 17"));
+  const sections = [...new Map(cur.map((r) => [r.sectionOrder, r])).values()].sort((a, b) => a.sectionOrder - b.sectionOrder);
+  const header = ["Школа", "Класс", "ФИО", "Учебник", ...sections.map((s) => `СОР ${s.sectionOrder}. ${s.section} (макс ${s.maxScore})`)];
+  const byStudent = new Map<string, typeof cur>();
+  for (const r of cur) byStudent.set(r.studentId, [...(byStudent.get(r.studentId) ?? []), r]);
+  const rows: (string | number)[][] = [header];
+  let i = 0;
+  for (const rs of byStudent.values()) {
+    const r0 = rs[0];
+    const name = `${SURNAMES[i % SURNAMES.length]} ${"АБДЕЖКМНСТ"[(i * 7) % 10]}.`;
+    i++;
+    rows.push([r0.school, r0.classId.split(" · ")[1], name, r0.textbook, ...sections.map((s) => rs.find((x) => x.sectionOrder === s.sectionOrder)?.score ?? "")]);
+  }
+  return rows;
+}
+
 async function main() {
   const ds = generateDemo(2026);
+  {
+    const jr = journalExample(ds);
+    writeFileSync("public/demo/oqulens_journal_example.xlsx", buildXlsx([{ name: "Журнал СОР", rows: jr, widths: [12, 8, 16, 12, 30, 22, 36, 30, 32, 28] }]));
+    const back = await parseXlsx(new Uint8Array(readFileSync("public/demo/oqulens_journal_example.xlsx")).buffer, "journal.xlsx");
+    const ids = new Set(back.dataset?.rows.map((r) => r.studentId));
+    console.log(`journal example: ${jr.length - 1} students → rows ${back.dataset?.rows.length}, students ${ids.size}, errors ${back.errors.length}, names leaked: ${back.dataset?.rows.some((r) => /Ахметов|Иванова/.test(r.studentId))}`);
+  }
   const csv = toCsv(ds.rows);
   mkdirSync("public/demo", { recursive: true });
   writeFileSync("public/demo/oqulens_demo_algebra7_zhambyl.csv", "﻿" + csv, "utf8");
