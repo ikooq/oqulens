@@ -12,6 +12,8 @@ export const COLUMNS: {
   required: boolean;
   hint: string;
   hintKk: string;
+  /** Другие названия столбца, которые тоже принимаем */
+  aliases?: string[];
 }[] = [
   { key: "district", csv: "district", ru: "район", kk: "аудан", required: false, hint: "Район / город", hintKk: "Аудан / қала" },
   { key: "school", csv: "school", ru: "школа", kk: "мектеп", required: true, hint: "Название или код школы", hintKk: "Мектептің атауы немесе коды" },
@@ -27,6 +29,16 @@ export const COLUMNS: {
   { key: "score", csv: "score", ru: "балл", kk: "балл", required: true, hint: "Балл за СОР", hintKk: "БЖБ балы" },
   { key: "maxScore", csv: "max_score", ru: "макс_балл", kk: "макс_балл", required: true, hint: "Максимальный балл СОР", hintKk: "БЖБ-ның ең жоғары балы" },
   { key: "baselinePct", csv: "baseline_pct", ru: "стартовый_уровень", kk: "бастапқы_деңгей", required: false, hint: "Итог прошлого года, %", hintKk: "Өткен жылдың қорытындысы, %" },
+  {
+    key: "period",
+    csv: "period",
+    ru: "учебный_год",
+    kk: "оқу_жылы",
+    required: false,
+    hint: "Учебный год, например 2025–2026 — чтобы сравнить годы и проверить, сработали ли изменения",
+    hintKk: "Оқу жылы, мысалы 2025–2026 — жылдарды салыстырып, өзгерістердің нәтижесін тексеру үшін",
+    aliases: ["год", "период", "year", "school_year", "жыл", "кезең"],
+  },
 ];
 
 const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, "_").replace(/ё/g, "е");
@@ -54,7 +66,8 @@ export function parseRecords(data: Record<string, string>[], fields: string[], n
   const headers = fields.map((h) => [h, norm(h)] as const);
   const colOf = new Map<keyof Row, string>();
   for (const c of COLUMNS) {
-    const hit = headers.find(([, n]) => n === norm(c.csv) || n === norm(c.ru) || n === norm(c.kk));
+    const names = [c.csv, c.ru, c.kk, ...(c.aliases ?? [])].map(norm);
+    const hit = headers.find(([, n]) => names.includes(n));
     if (hit) colOf.set(c.key, hit[0]);
     else if (c.required)
       errors.push(
@@ -63,7 +76,7 @@ export function parseRecords(data: Record<string, string>[], fields: string[], n
   }
   if (errors.length) return { errors, warnings };
   for (const c of COLUMNS)
-    if (!c.required && !colOf.has(c.key))
+    if (!c.required && !colOf.has(c.key) && c.key !== "period")
       warnings.push(t(`Столбец «${c.ru}» не найден — часть анализа будет ограничена.`, `«${c.kk}» бағаны табылмады — талдаудың бір бөлігі шектеледі.`));
 
   const num = (v: string | undefined) => {
@@ -95,7 +108,7 @@ export function parseRecords(data: Record<string, string>[], fields: string[], n
       noId++;
       continue;
     }
-    const key = `${get(r, "studentId")}\u0000${section}`;
+    const key = `${get(r, "studentId")}\u0000${section}\u0000${get(r, "period")}`;
     if (seen.has(key)) duplicates++;
     seen.add(key);
     if (score < 0 || score > maxScore) clamped++;
@@ -106,6 +119,7 @@ export function parseRecords(data: Record<string, string>[], fields: string[], n
     const actual = num(get(r, "actualHours"));
     const order = num(get(r, "sectionOrder"));
     const baseline = num(get(r, "baselinePct"));
+    const period = get(r, "period");
     if (!Number.isFinite(baseline)) baselineMissing++;
     if (!Number.isFinite(actual)) hoursMissing++;
     rows.push({
@@ -123,6 +137,7 @@ export function parseRecords(data: Record<string, string>[], fields: string[], n
       score: Math.max(0, Math.min(score, maxScore)),
       maxScore,
       baselinePct: Number.isFinite(baseline) ? baseline : 50,
+      ...(period ? { period } : {}),
     });
   }
   if (bad) warnings.push(t(`Пропущено строк с некорректным баллом или разделом: ${bad}.`, `Балы немесе бөлімі қате жолдар өткізілді: ${bad}.`));
@@ -267,7 +282,7 @@ function buildQuality(
 export function toSheetRows(rows: Row[], lang: Lang = "ru"): (string | number)[][] {
   const kk = lang === "kk";
   const val = (r: Row, k: keyof Row) =>
-    kk && k === "locality" ? (r.locality === "село" ? "ауыл" : "қала") : kk && k === "language" ? (r.language === "рус" ? "орыс" : "қаз") : r[k];
+    kk && k === "locality" ? (r.locality === "село" ? "ауыл" : "қала") : kk && k === "language" ? (r.language === "рус" ? "орыс" : "қаз") : (r[k] ?? "");
   return [COLUMNS.map((c) => (kk ? c.kk : c.ru)), ...rows.map((r) => COLUMNS.map((c) => val(r, c.key)))];
 }
 
@@ -283,7 +298,7 @@ export function columnsHelpRows(lang: Lang = "ru"): string[][] {
 export function toCsv(rows: Row[]): string {
   return Papa.unparse({
     fields: COLUMNS.map((c) => c.csv),
-    data: rows.map((r) => COLUMNS.map((c) => r[c.key])),
+    data: rows.map((r) => COLUMNS.map((c) => r[c.key] ?? "")),
   });
 }
 

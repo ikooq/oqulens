@@ -16,6 +16,7 @@ import { Analysis, buildInsights, Insight } from "@/lib/analytics";
 import { int } from "@/lib/format";
 import { DataQuality, DemoTruth } from "@/lib/types";
 import { validateDemo } from "@/lib/validation";
+import { Dynamics } from "@/lib/dynamics";
 import { Card, Kpi, LevelBar, LevelLegend, StatusBadge } from "./ui";
 import { useFmt, useLang, useT } from "./lang";
 import type { Tab } from "./App";
@@ -37,11 +38,13 @@ export default function OverviewTab({
   go,
   truth,
   quality,
+  dyn,
 }: {
   a: Analysis;
   go: (t: Tab) => void;
   truth?: DemoTruth;
   quality?: DataQuality;
+  dyn?: Dynamics | null;
 }) {
   const lang = useLang();
   const t = useT();
@@ -125,7 +128,7 @@ export default function OverviewTab({
         </div>
       </Card>
 
-      {truth && <ValidationCard a={a} truth={truth} />}
+      {truth && <ValidationCard a={a} truth={truth} dyn={dyn} />}
     </div>
   );
 }
@@ -164,10 +167,10 @@ function QualityCard({ q }: { q: DataQuality }) {
   );
 }
 
-function ValidationCard({ a, truth }: { a: Analysis; truth: DemoTruth }) {
+function ValidationCard({ a, truth, dyn }: { a: Analysis; truth: DemoTruth; dyn?: Dynamics | null }) {
   const lang = useLang();
   const t = useT();
-  const checks = validateDemo(a, truth, lang);
+  const checks = validateDemo(a, truth, lang, dyn);
   const ok = checks.filter((c) => c.ok).length;
   return (
     <div data-tour="validation">

@@ -57,6 +57,15 @@ const DISTRICTS: { name: string; nameKk: string; schools: number; urbanFirst: bo
 /** Областной центр показываем первым в списках районов. */
 export const isRegionCenter = (d: string) => d === "г. Тараз" || d === "Тараз қ.";
 
+/** Учебные годы демо-данных: основной анализ идёт по последнему. */
+export const DEMO_PERIODS = ["2024–2025", "2025–2026"] as const;
+/** Пилот: в 2024–2025 эти районы распределяли часы иначе, а в 2025–2026 перешли на план. */
+const PILOT_DISTRICTS = ["г. Тараз", "Шуский район"];
+/** Отклонение часов пилотных школ от плана в 2024–2025 (сумма = 0). */
+const PILOT_PREV_SHIFT = [3, 0, -2, -3, 0, 2];
+/** Общий сдвиг уровня прошлого года (логит-шкала): поэтому сравнивать надо с контрольными школами. */
+const PREV_YEAR_TREND = -0.08;
+
 const tbName = (key: string, lang: Lang) => (lang === "kk" ? `${key} оқулығы` : `Учебник ${key}`);
 
 export function generateDemo(seed = 2026, lang: Lang = "ru"): Dataset {
@@ -67,6 +76,19 @@ export function generateDemo(seed = 2026, lang: Lang = "ru"): Dataset {
   const schoolEffect: DemoTruth["schoolEffect"] = {};
   let schoolNo = 0;
   let studentNo = 0;
+  type SchoolParams = {
+    d: (typeof DISTRICTS)[number];
+    school: string;
+    urban: boolean;
+    locality: Row["locality"];
+    language: Row["language"];
+    textbook: string;
+    schoolAbility: number;
+    schoolTeach: number;
+    schoolSectionTeach: number[];
+    nClasses: number;
+  };
+  const schools: SchoolParams[] = [];
 
   for (const d of DISTRICTS) {
     for (let s = 0; s < d.schools; s++) {
@@ -87,6 +109,7 @@ export function generateDemo(seed = 2026, lang: Lang = "ru"): Dataset {
         bySection: Object.fromEntries(DEMO_SECTIONS.map((sec, i) => [secName(sec), schoolTeach + schoolSectionTeach[i]])),
       };
       const nClasses = urban ? (r.next() < 0.6 ? 3 : 2) : r.next() < 0.3 ? 1 : 2;
+      schools.push({ d, school, urban, locality, language, textbook, schoolAbility, schoolTeach, schoolSectionTeach, nClasses });
 
       for (let c = 0; c < nClasses; c++) {
         const classId = `${school} · 7${"АБВ"[c]}`;
@@ -128,9 +151,63 @@ export function generateDemo(seed = 2026, lang: Lang = "ru"): Dataset {
               score: r.binomial(sec.maxScore, p),
               maxScore: sec.maxScore,
               baselinePct,
+              period: DEMO_PERIODS[1],
             });
           });
         }
+      }
+    }
+  }
+
+  // Прошлый учебный год: те же школы, другие ученики. Отдельный ГСЧ, чтобы данные текущего года не менялись.
+  const r2 = rng(seed + 7919);
+  const pilotSchools: string[] = [];
+  for (const sp of schools) {
+    const pilot = PILOT_DISTRICTS.includes(sp.d.name);
+    if (pilot) pilotSchools.push(sp.school);
+    for (let c = 0; c < sp.nClasses; c++) {
+      const classId = `${sp.school} · 7${"АБВ"[c]} (${DEMO_PERIODS[0]})`;
+      const hours = DEMO_SECTIONS.map((sec, i) => {
+        const target = sec.planned + (pilot ? PILOT_PREV_SHIFT[i] : 0);
+        return clamp(target + Math.round(r2.normal(0, 2.3)), target - 5, target + 5);
+      });
+      const classTeach = DEMO_SECTIONS.map(() => r2.normal(0, 0.1));
+      const nStudents = sp.urban ? 20 + Math.floor(r2.next() * 9) : 12 + Math.floor(r2.next() * 11);
+      for (let k = 0; k < nStudents; k++) {
+        studentNo++;
+        const studentId = `U${String(studentNo).padStart(5, "0")}`;
+        const theta = sp.schoolAbility + r2.normal(0, 0.85);
+        const baselinePct = Math.round(clamp(100 * sigmoid(0.35 + 0.95 * theta + r2.normal(0, 0.4)), 8, 100));
+        const comp: number[] = [];
+        DEMO_SECTIONS.forEach((sec, i) => {
+          const tb = TB_EFFECT[sp.textbook];
+          const tbEff = tb.all + (tb.bySection?.[i] ?? 0);
+          const hoursEff = sec.hoursSensitivity * Math.log(hours[i] / sec.planned);
+          let c_i = tbEff + sp.schoolTeach + sp.schoolSectionTeach[i] + classTeach[i] + hoursEff + r2.normal(0, 0.55);
+          const pre = PREREQ[i];
+          if (pre) c_i += pre[1] * comp[pre[0]];
+          comp.push(c_i);
+        });
+        DEMO_SECTIONS.forEach((sec, i) => {
+          const p = sigmoid(0.3 + PREV_YEAR_TREND + theta + comp[i] - sec.difficulty);
+          rows.push({
+            district: kk ? sp.d.nameKk : sp.d.name,
+            school: sp.school,
+            locality: sp.locality,
+            language: sp.language,
+            classId,
+            studentId,
+            textbook: tbName(sp.textbook, lang),
+            section: secName(sec),
+            sectionOrder: i + 1,
+            plannedHours: sec.planned,
+            actualHours: hours[i],
+            score: r2.binomial(sec.maxScore, p),
+            maxScore: sec.maxScore,
+            baselinePct,
+            period: DEMO_PERIODS[0],
+          });
+        });
       }
     }
   }
@@ -157,6 +234,12 @@ export function generateDemo(seed = 2026, lang: Lang = "ru"): Dataset {
         .map(secName),
       uneven: secName(DEMO_SECTIONS[4]),
       schoolEffect,
+      dynamics: {
+        pilotSchools,
+        // В пилоте часы добавили этим разделам (и сняли с тех, где отдача мала)
+        moreHours: DEMO_SECTIONS.filter((_, i) => PILOT_PREV_SHIFT[i] < 0).map(secName),
+        fewerHours: DEMO_SECTIONS.filter((_, i) => PILOT_PREV_SHIFT[i] > 0).map(secName),
+      },
     },
   };
 }

@@ -1,10 +1,11 @@
 // Готовые вопросы ассистента: ответы считаются прямо из анализа, без ИИ и без интернета.
 import { Analysis } from "./analytics";
+import { Dynamics, dynamicsHighlights } from "./dynamics";
 import { makeFmt } from "./format";
 import { Lang, tr } from "./i18n";
 
-export type TabId = "overview" | "sections" | "schools" | "textbooks" | "hours" | "report";
-export type QuestionId = "hardest" | "textbook" | "hours" | "schools" | "first" | "trust";
+export type TabId = "overview" | "sections" | "schools" | "textbooks" | "hours" | "dynamics" | "report";
+export type QuestionId = "hardest" | "textbook" | "hours" | "schools" | "first" | "dynamics" | "trust";
 
 export interface Answer {
   text: string;
@@ -19,15 +20,77 @@ export const QUESTIONS: { id: QuestionId; ru: string; kk: string }[] = [
   { id: "textbook", ru: "Какой учебник лучше?", kk: "Қай оқулық жақсырақ?" },
   { id: "hours", ru: "Куда перенести учебные часы?", kk: "Оқу сағаттарын қайда ауыстыру керек?" },
   { id: "first", ru: "Что делать в первую очередь?", kk: "Алдымен не істеу керек?" },
+  { id: "dynamics", ru: "Сработали ли изменения?", kk: "Өзгерістер нәтиже берді ме?" },
   { id: "trust", ru: "Можно ли доверять этим выводам?", kk: "Бұл қорытындыларға сенуге бола ма?" },
 ];
 
 const q = (s: string) => `«${s}»`;
 
-export function answer(id: QuestionId, a: Analysis, lang: Lang, validation?: { ok: number; total: number }): Answer {
+export function answer(
+  id: QuestionId,
+  a: Analysis,
+  lang: Lang,
+  validation?: { ok: number; total: number },
+  dyn?: Dynamics | null,
+): Answer {
   const t = (ru: string, kk: string) => tr(lang, ru, kk);
   const { pct, share, pp, nSchools } = makeFmt(lang);
   const open = (ru: string, kk: string) => t(`Открыть «${ru}»`, `«${kk}» ашу`);
+
+  if (id === "dynamics") {
+    if (!dyn)
+      return {
+        text: t(
+          "В данных один учебный год, поэтому сравнить пока не с чем. Загрузите результаты СОР за два года в одном файле со столбцом «учебный_год» (например, 2024–2025 и 2025–2026) — OquLens покажет, что изменилось и сработали ли перенос часов или смена учебника.",
+          "Деректерде бір оқу жылы ғана бар, сондықтан салыстыратын ештеңе жоқ. Екі жылдың БЖБ нәтижелерін «оқу_жылы» бағанымен бір файлда жүктеңіз (мысалы, 2024–2025 және 2025–2026) — OquLens не өзгергенін және сағатты ауыстыру не оқулықты ауыстыру нәтиже бергенін көрсетеді.",
+        ),
+        tab: "dynamics",
+        actionLabel: open("Динамика по годам", "Жылдар динамикасы"),
+      };
+    const ch = dyn.overall.change;
+    const hs = dynamicsHighlights(dyn, (n) => a.hours.sections.find((h) => h.name === n)?.perHour);
+    const lines: string[] = [];
+    for (const h of hs.filter((x) => x.verdict === "confirmed" || x.verdict === "weaker" || x.verdict === "not_confirmed")) {
+      const s = h.section;
+      const fc = h.forecast !== undefined ? pp(h.forecast) : "—";
+      if (h.verdict === "confirmed" && s.slope)
+        lines.push(t(`**${q(s.name)}**: каждый добавленный час дал ${pp(s.slope.est)} (прогноз модели ${fc}) — подтвердилось.`, `**${q(s.name)}**: әр қосылған сағат ${pp(s.slope.est)} берді (модель болжамы ${fc}) — расталды.`));
+      else if (h.verdict === "weaker" && s.slope)
+        lines.push(t(`**${q(s.name)}**: эффект есть, но слабее прогноза (${pp(s.slope.est)} против ${fc}).`, `**${q(s.name)}**: әсер бар, бірақ болжамнан әлсіз (${pp(s.slope.est)}, болжам ${fc}).`));
+      else lines.push(t(`**${q(s.name)}**: ожидаемый эффект часов (${fc}) не подтвердился.`, `**${q(s.name)}**: күтілген сағат әсері (${fc}) расталмады.`));
+    }
+    const low = hs.filter((x) => x.verdict === "low_return").map((x) => q(x.section.name));
+    if (low.length)
+      lines.push(t(`${low.join(", ")}: часы почти не влияют на результат — снимать их отсюда безопасно.`, `${low.join(", ")}: сағат нәтижеге аз әсер етеді — бұл жерден сағатты алу қауіпсіз.`));
+    const best = hs.find((x) => x.section.did?.significant && x.section.added && x.section.same)?.section;
+    if (best?.did && best.added && best.same)
+      lines.push(
+        t(
+          `Школы, добавившие 2+ часа на ${q(best.name)} (${best.added.n}): результат ${pp(best.added.delta)}; остальные (${best.same.n}): ${pp(best.same.delta)}.`,
+          `${q(best.name)} бөліміне 2+ сағат қосқан мектептер (${best.added.n}): нәтиже ${pp(best.added.delta)}; қалғандары (${best.same.n}): ${pp(best.same.delta)}.`,
+        ),
+      );
+    const up = dyn.schools.filter((s) => s.flag === "up").slice(0, 3).map((s) => s.school);
+    const down = dyn.schools.filter((s) => s.flag === "down").reverse().slice(0, 3).map((s) => s.school);
+    if (up.length || down.length)
+      lines.push(
+        t(
+          `Сверх общей динамики выросли: ${up.join(", ") || "—"}; просели: ${down.join(", ") || "—"}.`,
+          `Жалпы динамикадан тыс өскендер: ${up.join(", ") || "—"}; төмендегендер: ${down.join(", ") || "—"}.`,
+        ),
+      );
+    return {
+      text:
+        t(
+          `${dyn.prev} → ${dyn.cur}: при равном стартовом уровне средний результат изменился на **${pp(ch.est)}**${ch.significant ? "" : " (в пределах случайного разброса)"}.`,
+          `${dyn.prev} → ${dyn.cur}: тең бастапқы деңгейде орташа нәтиже **${pp(ch.est)}** өзгерді${ch.significant ? "" : " (кездейсоқ ауытқу шегінде)"}.`,
+        ) +
+        "\n" +
+        lines.map((l) => `- ${l}`).join("\n"),
+      tab: "dynamics",
+      actionLabel: open("Динамика по годам", "Жылдар динамикасы"),
+    };
+  }
 
   if (id === "hardest") {
     const s = [...a.sections].sort((x, y) => x.mean - y.mean)[0];

@@ -7,7 +7,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "test": "tsx --test tests/*.test.ts",
+    "typecheck": "tsc --noEmit",
     "check": "tsx scripts/check.ts",
+    "dynamics": "tsx scripts/dynamics-preview.ts",
     "demo-csv": "tsx scripts/export-demo.ts",
     "report": "tsx scripts/report-preview.ts"
   },

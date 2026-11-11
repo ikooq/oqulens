@@ -246,6 +246,21 @@ export interface Analysis {
 
 // ---------------------------------------------------------------- фильтры
 
+/** Учебные годы/периоды в данных по возрастанию (пусто, если столбца нет). */
+export function periodsOf(rows: Row[]): string[] {
+  const set = new Set<string>();
+  for (const r of rows) if (r.period) set.add(r.period);
+  return [...set].sort((a, b) => a.localeCompare(b, "ru", { numeric: true }));
+}
+
+/** Строки последнего периода; строки без периода считаются текущими. */
+export function latestPeriodRows(rows: Row[]): Row[] {
+  const ps = periodsOf(rows);
+  if (ps.length < 2) return rows;
+  const last = ps[ps.length - 1];
+  return rows.filter((r) => !r.period || r.period === last);
+}
+
 export function applyFilters(rows: Row[], f: Filters): Row[] {
   return rows.filter(
     (r) =>
@@ -293,7 +308,9 @@ const hasVariance = (a: number[]) => a.length > 1 && variance(a) > 1e-9;
 
 // ---------------------------------------------------------------- главный расчёт
 
-export function analyze(rows: Row[]): Analysis | null {
+export function analyze(allRows: Row[]): Analysis | null {
+  // Если в данных несколько учебных лет, основной анализ — по последнему (динамика — в dynamics.ts)
+  const rows = latestPeriodRows(allRows);
   if (rows.length === 0) return null;
 
   // Разделы учебной программы

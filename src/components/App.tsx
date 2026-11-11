@@ -13,10 +13,12 @@ import {
   RotateCcw,
   School,
   ShieldCheck,
+  TrendingUp,
   Upload,
   X,
 } from "lucide-react";
 import { analyze, applyFilters } from "@/lib/analytics";
+import { analyzeDynamics } from "@/lib/dynamics";
 import { columnsHelpRows, downloadText, ParseResult, parseCsv, toCsv, toSheetRows } from "@/lib/csv";
 import { parseXlsx } from "@/lib/xlsx";
 import { downloadXlsx } from "@/lib/xlsxWriter";
@@ -33,13 +35,14 @@ import SectionsTab from "./SectionsTab";
 import SchoolsTab from "./SchoolsTab";
 import TextbooksTab from "./TextbooksTab";
 import HoursTab from "./HoursTab";
+import DynamicsTab from "./DynamicsTab";
 import ReportTab from "./ReportTab";
 import Assistant from "./Assistant";
 import { QuestionId, QUESTIONS } from "@/lib/answers";
 import Tour from "./Tour";
 
-export type Tab = "overview" | "sections" | "schools" | "textbooks" | "hours" | "report";
-const TABS: Tab[] = ["overview", "sections", "schools", "textbooks", "hours", "report"];
+export type Tab = "overview" | "sections" | "schools" | "textbooks" | "hours" | "dynamics" | "report";
+const TABS: Tab[] = ["overview", "sections", "schools", "textbooks", "hours", "dynamics", "report"];
 
 const NAV: { id: Tab; ru: string; kk: string; icon: React.ReactNode }[] = [
   { id: "overview", ru: "Обзор", kk: "Шолу", icon: <LayoutDashboard size={18} /> },
@@ -47,6 +50,7 @@ const NAV: { id: Tab; ru: string; kk: string; icon: React.ReactNode }[] = [
   { id: "schools", ru: "Школы", kk: "Мектептер", icon: <School size={18} /> },
   { id: "textbooks", ru: "Учебники", kk: "Оқулықтар", icon: <BookOpen size={18} /> },
   { id: "hours", ru: "Учебные часы", kk: "Оқу сағаттары", icon: <Clock size={18} /> },
+  { id: "dynamics", ru: "Динамика по годам", kk: "Жылдар динамикасы", icon: <TrendingUp size={18} /> },
   { id: "report", ru: "Методическая записка", kk: "Әдістемелік жазба", icon: <FileText size={18} /> },
 ];
 
@@ -141,6 +145,7 @@ export default function App() {
 
   const rows = useMemo(() => (dataset ? applyFilters(dataset.rows, filters) : []), [dataset, filters]);
   const analysis = useMemo(() => analyze(rows), [rows]);
+  const dynamics = useMemo(() => analyzeDynamics(rows), [rows]);
 
   const options = useMemo(() => {
     const rs = dataset?.rows ?? [];
@@ -413,13 +418,14 @@ export default function App() {
           </header>
           <div className="mx-auto max-w-[1280px] px-4 py-5 sm:px-6 sm:py-6">
             {tab === "overview" && (
-              <OverviewTab a={analysis} go={setTab} truth={isAll(filters) ? dataset.truth : undefined} quality={dataset.quality} />
+              <OverviewTab a={analysis} go={setTab} truth={isAll(filters) ? dataset.truth : undefined} quality={dataset.quality} dyn={dynamics} />
             )}
             {tab === "sections" && <SectionsTab a={analysis} onSchool={openSchool} />}
             {tab === "schools" && <SchoolsTab a={analysis} school={school} onSelect={setSchool} />}
             {tab === "textbooks" && <TextbooksTab a={analysis} />}
             {tab === "hours" && <HoursTab a={analysis} />}
-            {tab === "report" && <ReportTab a={analysis} ctx={ctx} />}
+            {tab === "dynamics" && <DynamicsTab a={analysis} d={dynamics} onSchool={openSchool} />}
+            {tab === "report" && <ReportTab a={analysis} ctx={ctx} dyn={dynamics} />}
           </div>
         </main>
         {toast}
@@ -427,6 +433,7 @@ export default function App() {
           a={analysis}
           ctx={ctx}
           truth={isAll(filters) ? dataset.truth : undefined}
+          dyn={dynamics}
           initialAsk={initialAsk}
           open={assistantOpen}
           onOpenChange={setAssistantOpen}
@@ -435,6 +442,7 @@ export default function App() {
         {tourOpen && (
           <Tour
             a={analysis}
+            dyn={dynamics}
             hasTruth={!!dataset.truth && isAll(filters)}
             onTab={setTab}
             onSchool={openSchool}

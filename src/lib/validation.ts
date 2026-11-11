@@ -2,6 +2,7 @@
 // и здесь мы сверяем, нашёл ли их анализ сам, не зная ответа.
 
 import { Analysis } from "./analytics";
+import { Dynamics, verdict } from "./dynamics";
 import { DemoTruth } from "./types";
 import { correlation } from "./stats";
 import { makeFmt } from "./format";
@@ -16,7 +17,7 @@ export interface Check {
 
 const q = (s: string) => `«${s}»`;
 
-export function validateDemo(a: Analysis, t: DemoTruth, lang: Lang = "ru"): Check[] {
+export function validateDemo(a: Analysis, t: DemoTruth, lang: Lang = "ru", dyn?: Dynamics | null): Check[] {
   const L = (ru: string, kk: string) => tr(lang, ru, kk);
   const { pp } = makeFmt(lang);
   const out: Check[] = [];
@@ -90,6 +91,30 @@ export function validateDemo(a: Analysis, t: DemoTruth, lang: Lang = "ru"): Chec
     found: Number.isFinite(r) ? L(`корреляция оценки с истинным вкладом r = ${rs}`, `бағаның шын үлеспен корреляциясы r = ${rs}`) : "—",
     ok: r >= 0.6,
   });
+
+  // Динамика: в пилоте часы перенесли — подтверждает ли это год к году прогноз модели
+  if (dyn && t.dynamics) {
+    const found = t.dynamics.moreHours.map((name) => {
+      const s = dyn.sections.find((x) => x.name === name);
+      const fc = a.hours.sections.find((h) => h.name === name)?.perHour;
+      return { name, s, fc, v: s ? verdict(s, fc) : "no_data" };
+    });
+    out.push({
+      title: L("Сработал ли перенос часов", "Сағатты ауыстыру нәтиже берді ме"),
+      planted: L(
+        `пилотные школы добавили часы: ${t.dynamics.moreHours.map(q).join(", ")}`,
+        `пилоттық мектептер сағат қосты: ${t.dynamics.moreHours.map(q).join(", ")}`,
+      ),
+      found: found
+        .map((f) =>
+          f.s?.slope
+            ? L(`${q(f.name)}: +1 ч ≈ ${pp(f.s.slope.est)} (прогноз ${pp(f.fc ?? NaN)})`, `${q(f.name)}: +1 сағ ≈ ${pp(f.s.slope.est)} (болжам ${pp(f.fc ?? NaN)})`)
+            : `${q(f.name)}: —`,
+        )
+        .join("; "),
+      ok: found.every((f) => f.v === "confirmed"),
+    });
+  }
 
   return out;
 }

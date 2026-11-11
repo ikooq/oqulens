@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, ArrowRight, Compass, X } from "lucide-react";
 import { Analysis } from "@/lib/analytics";
+import { Dynamics, dynamicsHighlights } from "@/lib/dynamics";
 import { makeFmt } from "@/lib/format";
 import { useLang, useT } from "./lang";
 import type { Tab } from "./App";
@@ -18,6 +19,7 @@ interface Step {
 /** Пошаговая экскурсия по демо: переключает вкладки и подсвечивает главное. */
 export default function Tour({
   a,
+  dyn,
   hasTruth,
   onTab,
   onSchool,
@@ -25,6 +27,7 @@ export default function Tour({
   onClose,
 }: {
   a: Analysis;
+  dyn?: Dynamics | null;
   hasTruth: boolean;
   onTab: (t: Tab) => void;
   onSchool: (s: string) => void;
@@ -123,6 +126,25 @@ export default function Tour({
           `${a.hours.totalPlanned} сағаттың ${a.hours.movedHours} сағаты бекітілген көлем ішінде ауыстырылады: болжам — орташа нәтижеге ${pp(a.hours.meanAfter - a.hours.meanBefore)}. Төменде — «егер...» симуляторы.`,
         ),
       });
+    if (dyn) {
+      const top = dynamicsHighlights(dyn, (n) => a.hours.sections.find((h) => h.name === n)?.perHour)[0];
+      const s = top?.section;
+      out.push({
+        tab: "dynamics",
+        target: "dyn-check",
+        title: t("Сработало ли? Проверка год к году", "Нәтиже берді ме? Жылдан жылға тексеру"),
+        text:
+          top?.verdict === "confirmed" && s?.slope && top.forecast !== undefined
+            ? t(
+                `Загрузите два учебных года — и платформа проверит изменения. В демо часть школ перенесла часы: каждый добавленный час на «${s.name}» дал ${pp(s.slope.est)}, а модель по данным одного года прогнозировала ${pp(top.forecast)}. Две независимые оценки совпали.`,
+                `Екі оқу жылын жүктеңіз — платформа өзгерістерді тексереді. Демода кейбір мектептер сағатты ауыстырды: «${s.name}» бөліміне қосылған әр сағат ${pp(s.slope.est)} берді, ал модель бір жылдың деректері бойынша ${pp(top.forecast)} болжаған. Екі тәуелсіз баға сәйкес келді.`,
+              )
+            : t(
+                `Сравнение ${dyn.prev} и ${dyn.cur}: что изменилось при равном стартовом уровне и в каких школах — заметный рост или спад.`,
+                `${dyn.prev} және ${dyn.cur} салыстыру: тең бастапқы деңгейде не өзгерді және қай мектептерде айтарлықтай өсу не төмендеу бар.`,
+              ),
+      });
+    }
     out.push({
       tab: "report",
       target: "report",
@@ -153,7 +175,7 @@ export default function Tour({
     });
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [a, hasTruth, lang]);
+  }, [a, dyn, hasTruth, lang]);
 
   const step = steps[Math.min(i, steps.length - 1)];
   const last = i >= steps.length - 1;

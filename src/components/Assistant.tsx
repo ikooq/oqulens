@@ -6,6 +6,7 @@ import { Analysis } from "@/lib/analytics";
 import { answer, QuestionId, QUESTIONS, TabId } from "@/lib/answers";
 import { buildSummary, ReportContext } from "@/lib/report";
 import { DemoTruth } from "@/lib/types";
+import { Dynamics } from "@/lib/dynamics";
 import { validateDemo } from "@/lib/validation";
 import { useLang, useT } from "./lang";
 import Markdown from "./Markdown";
@@ -24,6 +25,7 @@ export default function Assistant({
   a,
   ctx,
   truth,
+  dyn,
   initialAsk,
   open,
   onOpenChange,
@@ -32,6 +34,7 @@ export default function Assistant({
   a: Analysis;
   ctx: ReportContext;
   truth?: DemoTruth;
+  dyn?: Dynamics | null;
   initialAsk?: QuestionId;
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -48,9 +51,9 @@ export default function Assistant({
 
   const validation = useMemo(() => {
     if (!truth) return undefined;
-    const checks = validateDemo(a, truth, lang);
+    const checks = validateDemo(a, truth, lang, dyn);
     return { ok: checks.filter((c) => c.ok).length, total: checks.length };
-  }, [a, truth, lang]);
+  }, [a, truth, lang, dyn]);
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
@@ -65,11 +68,11 @@ export default function Assistant({
   }, [open, onOpenChange]);
 
   const asked = new Set(msgs.filter((m) => m.role === "user").map((m) => m.text));
-  const suggestions = QUESTIONS.filter((qq) => !asked.has(lang === "kk" ? qq.kk : qq.ru));
+  const suggestions = QUESTIONS.filter((qq) => !asked.has(lang === "kk" ? qq.kk : qq.ru) && (qq.id !== "dynamics" || !!dyn));
 
   const askPreset = (id: QuestionId) => {
     const qq = QUESTIONS.find((x) => x.id === id)!;
-    const ans = answer(id, a, lang, validation);
+    const ans = answer(id, a, lang, validation, dyn);
     setMsgs((m) => [...m, { role: "user", text: lang === "kk" ? qq.kk : qq.ru }, { role: "assistant", source: "rules", ...ans }]);
   };
 
@@ -95,7 +98,7 @@ export default function Assistant({
       const res = await fetch("/api/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ summary: buildSummary(a, ctx), question, history, lang }),
+        body: JSON.stringify({ summary: buildSummary(a, ctx, dyn), question, history, lang }),
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.text) {

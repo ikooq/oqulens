@@ -1,6 +1,7 @@
 // Методическая записка: детерминированная версия (работает без ИИ)
 // и компактная сводка, которая уходит в ИИ (только агрегаты, без данных учеников).
 import { Analysis } from "./analytics";
+import { Dynamics, dynamicsHighlights } from "./dynamics";
 
 
 export interface ReportContext {
@@ -12,7 +13,34 @@ export interface ReportContext {
 
 const r1 = (x: number) => (Number.isFinite(x) ? Math.round(x * 10) / 10 : null);
 
-export function buildSummary(a: Analysis, ctx: ReportContext) {
+/** Динамика год к году для ИИ: только агрегаты по разделам и школам. */
+export function dynamicsSummary(a: Analysis, d: Dynamics) {
+  const hs = dynamicsHighlights(d, (n) => a.hours.sections.find((h) => h.name === n)?.perHour);
+  return {
+    periods: [d.prev, d.cur],
+    note: "Основной анализ выше — по последнему году. Здесь — сравнение двух лет: результаты выровнены по стартовому уровню; эффект часа оценён по школам (изменение результата против изменения часов на раздел).",
+    mean_pct: [r1(d.overall.meanPrev), r1(d.overall.meanCur)],
+    change_equal_start_pp: r1(d.overall.change.est),
+    change_ci95: [r1(d.overall.change.lo), r1(d.overall.change.hi)],
+    change_significant: d.overall.change.significant,
+    sections: hs.map(({ section: s, forecast, verdict }) => ({
+      name: s.name,
+      avg_hours: [r1(s.hoursPrev), r1(s.hoursCur)],
+      change_pp: r1(s.change.est),
+      forecast_pp_per_hour: forecast !== undefined ? r1(forecast) : null,
+      actual_pp_per_hour: s.slope ? r1(s.slope.est) : null,
+      actual_ci95: s.slope ? [r1(s.slope.lo), r1(s.slope.hi)] : null,
+      verdict,
+      schools_added_2h: s.added ? { n: s.added.n, change_pp: r1(s.added.delta) } : null,
+      schools_unchanged: s.same ? { n: s.same.n, change_pp: r1(s.same.delta) } : null,
+    })),
+    verdict_legend: "confirmed — эффект часов подтвердился; weaker — слабее прогноза; not_confirmed — не подтвердился; low_return — часы почти не влияют; no_data — часы не менялись",
+    schools_rose: d.schools.filter((s) => s.flag === "up").slice(0, 5).map((s) => ({ school: s.school, district: s.district, vs_all_pp: r1(s.vsAll.est) })),
+    schools_fell: d.schools.filter((s) => s.flag === "down").reverse().slice(0, 5).map((s) => ({ school: s.school, district: s.district, vs_all_pp: r1(s.vsAll.est) })),
+  };
+}
+
+export function buildSummary(a: Analysis, ctx: ReportContext, dyn?: Dynamics | null) {
   return {
     title: ctx.title,
     scope: ctx.scope,
@@ -83,6 +111,7 @@ export function buildSummary(a: Analysis, ctx: ReportContext) {
       above_expected: schoolList(a, "above").map(schoolBrief),
     },
     key_findings: a.insights.map((i) => `${i.title}. ${i.text}`),
+    ...(dyn ? { dynamics_year_over_year: dynamicsSummary(a, dyn) } : {}),
   };
 }
 

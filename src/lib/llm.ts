@@ -40,10 +40,10 @@ export class LlmError extends Error {
 }
 
 /** Ключ из переменной окружения: без пробелов, переносов строк и кавычек по краям. */
-const cleanKey = (v: string | undefined) => (v ?? "").trim().replace(/^["']+|["']+$/g, "").trim();
+export const cleanKey = (v: string | undefined) => (v ?? "").trim().replace(/^["']+|["']+$/g, "").trim();
 
 /** Текст ошибки провайдера без чего-либо похожего на ключ. */
-const safeDetail = (status: string | undefined, msg: string | undefined) =>
+export const safeDetail = (status: string | undefined, msg: string | undefined) =>
   `${status ?? ""}${status && msg ? ": " : ""}${msg ?? ""}`
     .replace(/AIza[0-9A-Za-z_\-]{10,}/g, "[key]")
     .replace(/gsk_[0-9A-Za-z]{10,}/g, "[key]")
@@ -83,6 +83,7 @@ export function compactSummary(summary: unknown): unknown {
     if (Array.isArray(c.schools.above_expected)) c.schools.above_expected = c.schools.above_expected.slice(0, 5);
   }
   if (Array.isArray(c.hours?.sections)) for (const h of c.hours.sections) delete h.reason;
+  if (c.dynamics_year_over_year) delete c.dynamics_year_over_year.verdict_legend;
   if (Array.isArray(c.sections))
     for (const s of c.sections) {
       if (Array.isArray(s.schools_below_expected)) s.schools_below_expected = s.schools_below_expected.slice(0, 2);

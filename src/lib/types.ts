@@ -15,6 +15,8 @@ export interface Row {
   maxScore: number;
   /** Итоговый результат ученика за прошлый год, % (стартовый уровень). */
   baselinePct: number;
+  /** Учебный год или период (необязательно). Если периодов несколько, основной анализ — по последнему. */
+  period?: string;
 }
 
 export interface Dataset {
@@ -44,6 +46,8 @@ export interface DemoTruth {
   uneven: string;
   /** Истинный вклад школы (логит-шкала): общий и по разделам. */
   schoolEffect: Record<string, { overall: number; bySection: Record<string, number> }>;
+  /** Пилот прошлого года: какие школы перераспределили часы и куда. */
+  dynamics?: { pilotSchools: string[]; moreHours: string[]; fewerHours: string[] };
 }
 
 export interface Filters {

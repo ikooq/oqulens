@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Copy, Loader2, Printer, ShieldCheck, Sparkles } from "lucide-react";
 import { Analysis } from "@/lib/analytics";
+import { Dynamics } from "@/lib/dynamics";
 import { buildSummary, ReportContext } from "@/lib/report";
 import { buildReport } from "@/lib/memo";
 import { Lang, LANGS } from "@/lib/i18n";
@@ -12,7 +13,7 @@ import Markdown from "./Markdown";
 
 type Source = "rules" | "ai";
 
-export default function ReportTab({ a, ctx }: { a: Analysis; ctx: ReportContext }) {
+export default function ReportTab({ a, ctx, dyn }: { a: Analysis; ctx: ReportContext; dyn?: Dynamics | null }) {
   const uiLang = useLang();
   const t = useT();
   const [lang, setLang] = useState<Lang>(uiLang);
@@ -32,7 +33,7 @@ export default function ReportTab({ a, ctx }: { a: Analysis; ctx: ReportContext 
       const res = await fetch("/api/report", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ summary: buildSummary(a, ctx), lang }),
+        body: JSON.stringify({ summary: buildSummary(a, ctx, dyn), lang }),
       });
       const data = await res.json();
       if (!res.ok) {
