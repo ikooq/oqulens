@@ -148,7 +148,7 @@ export function answer(
     const lag = tb.lags[0];
     if (lag)
       text += t(
-        `\n\nСлабая глава: **${q(lag.textbook)}** в разделе ${q(lag.section)} отстаёт на ${pp(lag.diffVsBest).replace(/^−/, "")}. Достаточно дополнительных материалов к этой главе.`,
+        `\n\nСлабая глава: **${q(lag.textbook)}** в разделе ${q(lag.section)} отстаёт на ${pp(lag.diffVsBest).replace(/^−/, "")}. Стоит проверить задания и дополнительные материалы к этой главе.`,
         `\n\nӘлсіз тарау: **${q(lag.textbook)}** ${q(lag.section)} бөлімінде ${pp(lag.diffVsBest).replace(/^−/, "")} артта қалады. Осы тарауға қосымша материалдар жеткілікті.`,
       );
     return { text, tab: "textbooks", actionLabel: open("Учебники", "Оқулықтар") };

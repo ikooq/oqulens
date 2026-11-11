@@ -33,7 +33,7 @@ export function validateDemo(a: Analysis, t: DemoTruth, lang: Lang = "ru", dyn?:
   const strongest = [...t.prereqs].sort((x, y) => y.strength - x.strength)[0];
   const foundLink = a.prereqs.find((l) => l.to === strongest.to);
   out.push({
-    title: L("Корень проблемы", "Мәселенің түбірі"),
+    title: L("Связь между темами", "Тақырыптар арасындағы байланыс"),
     planted: `${q(strongest.from)} → ${q(strongest.to)}`,
     found: foundLink ? `${q(foundLink.from)} → ${q(foundLink.to)}` : L("связь не найдена", "байланыс табылмады"),
     ok: foundLink?.from === strongest.from,
