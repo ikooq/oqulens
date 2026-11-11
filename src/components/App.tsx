@@ -432,9 +432,9 @@ export default function App() {
               <div className="grid w-full grid-cols-[2fr_1fr_1fr] gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center sm:gap-2.5">
                 {select("district", t("Район", "Аудан"), options.districts)}
                 {options.localities.length > 1 &&
-                  select("locality", t("Местность", "Елді мекен"), options.localities, (v) => (v === "город" ? t("Город", "Қала") : t("Село", "Ауыл")))}
+                  select("locality", t("Местность", "Елді мекен"), options.localities, (v) => (v === "город" ? t("Город", "Қала") : v === "село" ? t("Село", "Ауыл") : t("Неизвестно", "Белгісіз")))}
                 {options.languages.length > 1 &&
-                  select("language", t("Язык", "Тіл"), options.languages, (v) => (v === "каз" ? t("Казахский", "Қазақ") : t("Русский", "Орыс")))}
+                  select("language", t("Язык", "Тіл"), options.languages, (v) => (v === "каз" ? t("Казахский", "Қазақ") : v === "рус" ? t("Русский", "Орыс") : t("Неизвестно", "Белгісіз")))}
               </div>
             </div>
             <div className="flex items-center gap-2 px-4 pb-2 lg:hidden">

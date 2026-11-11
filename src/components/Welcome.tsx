@@ -82,7 +82,7 @@ export default function Welcome({
     },
     {
       icon: <GitBranch size={20} />,
-      title: t("Корень проблемы", "Мәселенің түбірі"),
+      title: t("Возможная связь тем", "Тақырыптардың ықтимал байланысы"),
       text: t("Находит ранее изученный раздел, из-за которого «сыпется» следующая тема.", "Келесі тақырыптың «құлауына» себеп болған бұрынғы бөлімді табады."),
     },
     {
@@ -306,7 +306,7 @@ function PreviewCard({ preview }: { preview: Preview | null }) {
                 <Row
                   color="bg-sky-50 text-sky-600"
                   big={`${share(preview.root.weak)} → ${share(preview.root.strong)}`}
-                  text={t(`корень проблемы — «${preview.root.from}»`, `мәселенің түбірі — «${preview.root.from}»`)}
+                  text={t(`возможная связь с темой «${preview.root.from}»`, `ықтимал байланыс — «${preview.root.from}»`)}
                 />
               )}
               {preview.best && (

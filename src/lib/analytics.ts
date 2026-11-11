@@ -192,8 +192,8 @@ export interface SchoolMentor {
 export interface SchoolProfile {
   school: string;
   district: string;
-  urban: boolean;
-  language: "каз" | "рус" | "смеш";
+  urban: boolean | null;
+  language: "каз" | "рус" | "смеш" | "неизвестно";
   textbooks: string[];
   nStudents: number;
   nClasses: number;
@@ -308,10 +308,22 @@ const hasVariance = (a: number[]) => a.length > 1 && variance(a) > 1e-9;
 
 // ---------------------------------------------------------------- главный расчёт
 
+/** Различаем одинаковые названия школ в разных районах. */
+export function disambiguateSchools(rows: Row[]): Row[] {
+  const districts = new Map<string, Set<string>>();
+  for (const r of rows) {
+    const d = districts.get(r.school) ?? new Set<string>();
+    d.add(r.district);
+    districts.set(r.school, d);
+  }
+  return rows.map((r) => (districts.get(r.school)!.size > 1 ? { ...r, school: `${r.school} (${r.district})` } : r));
+}
+
 export function analyze(allRows: Row[]): Analysis | null {
   // Если в данных несколько учебных лет, основной анализ — по последнему (динамика — в dynamics.ts)
-  const rows = latestPeriodRows(allRows);
+  const rows = latestPeriodRows(disambiguateSchools(allRows));
   if (rows.length === 0) return null;
+  const baselineAvailable = rows.every((r) => !r.baselineMissing && Number.isFinite(r.baselinePct));
 
   // Разделы учебной программы
   const secGroups = groupBy(rows, (r) => r.section);
@@ -329,24 +341,26 @@ export function analyze(allRows: Row[]): Analysis | null {
   const classes = new Map<string, ClassInfo>();
   const classHours = new Map<string, Map<string, number[]>>();
   for (const r of rows) {
-    let st = students.get(r.studentId);
+    const studentKey = `${r.school}\0${r.classId}\0${r.studentId}`;
+    const classKey = `${r.school}\0${r.classId}`;
+    let st = students.get(studentKey);
     if (!st) {
       st = {
-        id: r.studentId,
-        classId: r.classId,
+        id: studentKey,
+        classId: classKey,
         school: r.school,
         district: r.district,
-        urban: r.locality === "город" ? 1 : 0,
-        rus: r.language === "рус" ? 1 : 0,
+        urban: r.locality === "город" ? 1 : r.locality === "село" ? 0 : 0.5,
+        rus: r.language === "рус" ? 1 : r.language === "каз" ? 0 : 0.5,
         textbook: r.textbook,
-        baseline: r.baselinePct,
+        baseline: baselineAvailable ? r.baselinePct : 50,
         pct: {},
       };
-      students.set(r.studentId, st);
+      students.set(studentKey, st);
     }
     st.pct[r.section] = r.maxScore > 0 ? (100 * r.score) / r.maxScore : NaN;
-    let ch = classHours.get(r.classId);
-    if (!ch) classHours.set(r.classId, (ch = new Map()));
+    let ch = classHours.get(classKey);
+    if (!ch) classHours.set(classKey, (ch = new Map()));
     const h = ch.get(r.section);
     if (h) h.push(r.actualHours);
     else ch.set(r.section, [r.actualHours]);
@@ -387,6 +401,7 @@ export function analyze(allRows: Row[]): Analysis | null {
     const resid = residualsOn(vals, [
       sts.map((st) => st.baseline),
       sts.map((st) => st.urban),
+      sts.map((st) => st.urban === 0.5 ? 1 : 0),
       ...textbooks.slice(1).map((t) => sts.map((st) => (st.textbook === t ? 1 : 0))),
     ]);
     sts.forEach((st, i) => {
@@ -505,6 +520,10 @@ export function analyze(allRows: Row[]): Analysis | null {
 
   // ---- Профили школ: результат относительно ожидаемого при их составе учеников
   const schools = buildSchoolProfiles(studentList, classList, sections, schoolSecRaw, studentRes, schoolDistrict);
+  if (!baselineAvailable) {
+    for (const school of schools) school.baseline = NaN;
+    for (const textbook of textbookAnalysis.rows) textbook.meanBaseline = NaN;
+  }
 
   const analysis: Analysis = {
     meta: {
@@ -619,8 +638,8 @@ function buildSchoolProfiles(
     return {
       school: sch,
       district: schoolDistrict.get(sch) ?? "",
-      urban: mean(sts.map((st) => st.urban)) >= 0.5,
-      language: rusShare >= 0.95 ? "рус" : rusShare <= 0.05 ? "каз" : "смеш",
+      urban: sts.some((st) => st.urban === 0.5) ? null : mean(sts.map((st) => st.urban)) >= 0.5,
+      language: sts.some((st) => st.rus === 0.5) ? "неизвестно" : rusShare >= 0.95 ? "рус" : rusShare <= 0.05 ? "каз" : "смеш",
       textbooks: [...new Set(sts.map((st) => st.textbook))].sort((a, b) => a.localeCompare(b, "ru")),
       nStudents: sts.length,
       nClasses: cls.length,
@@ -698,7 +717,9 @@ function designMatrix(
   const mb = mean(items.map((x) => x.baseline));
   if (hasVariance(items.map((x) => x.baseline))) cols.push({ name: "baseline", get: (x) => x.baseline - mb });
   if (hasVariance(items.map((x) => x.urban))) cols.push({ name: "urban", get: (x) => x.urban });
+  if (hasVariance(items.map((x) => Number(x.urban === 0.5)))) cols.push({ name: "urban_missing", get: (x) => Number(x.urban === 0.5) });
   if (hasVariance(items.map((x) => x.rus))) cols.push({ name: "rus", get: (x) => x.rus });
+  if (hasVariance(items.map((x) => Number(x.rus === 0.5)))) cols.push({ name: "language_missing", get: (x) => Number(x.rus === 0.5) });
   const nExtra = items[0]?.extra?.length ?? 0;
   for (let k = 0; k < nExtra; k++)
     if (hasVariance(items.map((x) => x.extra![k]))) cols.push({ name: `extra${k}`, get: (x) => x.extra![k] });
@@ -799,7 +820,7 @@ function analyzeTextbooks(
       .filter((st) => Number.isFinite(st.pct[sec.name]))
       .map((st) => {
         const h = classById.get(st.classId)?.hours[sec.name] ?? sec.planned;
-        return { ...st, y: st.pct[sec.name], extra: [Math.log(Math.max(1, h) / sec.planned)] };
+        return { ...st, y: st.pct[sec.name], extra: [sec.planned > 0 ? Math.log(Math.max(1, h) / sec.planned) : 0] };
       });
     const present = textbooks.filter((t) => valid.some((v) => v.name === t) && its.some((x) => x.textbook === t));
     if (present.length < 2) continue;
@@ -914,11 +935,11 @@ function planHours(
   // доказано, сокращаем не более чем на 10%, иначе — не более чем на 20%.
   const lo = sections.map((s, i) => {
     const e = est[i];
-    if (stats[i].mean < 55) return s.planned;
+    if (stats[i].mean < 55 || !Number.isFinite(e.se)) return s.planned;
     const sig = Number.isFinite(e.se) && e.beta - Z * e.se > 0;
     return Math.round(s.planned * (sig ? 0.9 : 0.8));
   });
-  const hi = planned.map((p) => Math.round(p * 1.3));
+  const hi = planned.map((p, i) => Number.isFinite(est[i].se) ? Math.round(p * 1.3) : p);
   const means = stats.map((s) => s.mean);
   const links = prereqs.map((l) => ({ from: secNames.indexOf(l.from), to: secNames.indexOf(l.to), gamma: l.gamma }));
 
@@ -930,7 +951,7 @@ function planHours(
     const total = Array(sections.length).fill(0);
     for (let i = 0; i < sections.length; i++) {
       const b = conservative ? (hours[i] >= planned[i] ? betaGain[i] : betaLoss[i]) : betaPoint[i];
-      let d = b * Math.log(Math.max(1, hours[i]) / planned[i]);
+      let d = planned[i] > 0 ? b * Math.log(Math.max(1, hours[i]) / planned[i]) : 0;
       for (const l of links) if (l.to === i && l.from < i) d += l.gamma * total[l.from];
       total[i] = clamp(d, -means[i], 98 - means[i]);
     }
@@ -992,14 +1013,14 @@ function planHours(
   );
   const hs: HoursSection[] = sections.map((sec, i) => {
     const e = est[i];
-    const perHour = betaPoint[i] * Math.log((sec.planned + 1) / sec.planned);
+    const perHour = sec.planned > 0 ? betaPoint[i] * Math.log((sec.planned + 1) / sec.planned) : 0;
     const significant = Number.isFinite(e.se) && e.beta - Z * e.se > 0;
     const dependents = prereqs.filter((l) => l.from === sec.name).map((l) => l.to);
     const delta = hours[i] - sec.planned;
     const reasonIn = (lang: Lang) => {
       const t = (ru: string, kk: string) => tr(lang, ru, kk);
       const u = t("п.п.", "п.т.");
-      if (!Number.isFinite(e.se))
+      if (!Number.isFinite(e.se) || sec.planned <= 0)
         return t("Недостаточно данных о фактических часах — оставляем по плану.", "Нақты сағаттар туралы дерек жеткіліксіз — жоспар бойынша қалдырамыз.");
       if (delta > 0)
         return (
@@ -1095,14 +1116,14 @@ export function buildInsights(a: Analysis, lang: Lang = "ru"): Insight[] {
     out.push({
       tab: "sections",
       tone: "info",
-      title: t(`Корень проблемы — «${rootLink.from}»`, `Мәселенің түбірі — «${rootLink.from}»`),
+      title: t(`Возможная связь с разделом «${rootLink.from}»`, `Ықтимал байланыс — «${rootLink.from}»`),
       text: t(
         `Среди не освоивших «${rootLink.from}» ${share(rootLink.failIfWeak)} не справились и с «${rootLink.to}», среди освоивших — только ${share(
           rootLink.failIfStrong,
-        )}. Начинать нужно с пререквизита.`,
+        )}. Связь стоит проверить с методистом.`,
         `«${rootLink.from}» бөлімін меңгермегендердің ${share(rootLink.failIfWeak)}-ы «${rootLink.to}» бөлімін де орындай алмады, меңгергендердің арасында — тек ${share(
           rootLink.failIfStrong,
-        )}. Алдымен осы негізгі бөлімнен бастау керек.`,
+        )}. Байланысты әдіскермен бірге тексеру қажет.`,
       ),
     });
   }
@@ -1161,7 +1182,7 @@ export function buildInsights(a: Analysis, lang: Lang = "ru"): Insight[] {
       tab: "hours",
       tone: "good",
       title: t(
-        `Перераспределение ${h.movedHours} ч даст ${pp(h.meanAfter - h.meanBefore)}`,
+        `Модель оценивает эффект ${h.movedHours} ч: ${pp(h.meanAfter - h.meanBefore)}`,
         `${h.movedHours} сағатты қайта бөлу ${pp(h.meanAfter - h.meanBefore)} береді`,
       ),
       text: t(
@@ -1177,8 +1198,8 @@ export function buildInsights(a: Analysis, lang: Lang = "ru"): Insight[] {
       tone: "info",
       title: t(`«${uneven.name}» сильно зависит от школы`, `«${uneven.name}» мектепке қатты тәуелді`),
       text: t(
-        "Разброс между школами выше, чем по другим разделам, даже с учётом уровня учеников и учебника. Значит, дело в преподавании. Нужна адресная методическая помощь школам с низким результатом и обмен опытом с лучшими.",
-        "Мектептер арасындағы алшақтық басқа бөлімдерге қарағанда жоғары, тіпті оқушылар деңгейі мен оқулықты ескергенде де. Демек, мәселе оқытуда. Нәтижесі төмен мектептерге атаулы әдістемелік көмек және үздік мектептермен тәжірибе алмасу қажет.",
+        "Разброс между школами выше, чем по другим разделам, даже с учётом уровня учеников и учебника. Причины различий требуют дополнительной проверки. Нужна адресная методическая помощь школам с низким результатом и обмен опытом с лучшими.",
+        "Мектептер арасындағы алшақтық басқа бөлімдерге қарағанда жоғары, тіпті оқушылар деңгейі мен оқулықты ескергенде де. Айырмашылық себептерін қосымша тексеру қажет. Нәтижесі төмен мектептерге атаулы әдістемелік көмек және үздік мектептермен тәжірибе алмасу қажет.",
       ),
     });
   }

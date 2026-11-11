@@ -2,8 +2,8 @@
 export interface Row {
   district: string;
   school: string;
-  locality: "город" | "село";
-  language: "каз" | "рус";
+  locality: "город" | "село" | "неизвестно";
+  language: "каз" | "рус" | "неизвестно";
   classId: string;
   studentId: string;
   textbook: string;
@@ -15,6 +15,8 @@ export interface Row {
   maxScore: number;
   /** Итоговый результат ученика за прошлый год, % (стартовый уровень). */
   baselinePct: number;
+  /** Значение неизвестно; baselinePct является технической заглушкой и не используется для поправки. */
+  baselineMissing?: boolean;
   /** Учебный год или период (необязательно). Если периодов несколько, основной анализ — по последнему. */
   period?: string;
 }

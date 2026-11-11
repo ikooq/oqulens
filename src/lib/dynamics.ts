@@ -4,7 +4,7 @@
 // по школам: насколько изменился результат там, где часы на раздел изменились.
 
 import { Row } from "./types";
-import { periodsOf } from "./analytics";
+import { disambiguateSchools, periodsOf } from "./analytics";
 import { groupBy, mean, ols, variance } from "./stats";
 
 const Z = 1.96;
@@ -63,6 +63,7 @@ export interface DynSchool {
 }
 
 export interface Dynamics {
+  hasBaseline: boolean;
   prev: string;
   cur: string;
   nPrev: number;
@@ -82,9 +83,11 @@ export function analyzeDynamics(rows: Row[]): Dynamics | null {
   if (periods.length < 2) return null;
   const prev = periods[periods.length - 2];
   const cur = periods[periods.length - 1];
-  const rs = rows.filter((r) => r.period === prev || r.period === cur);
+  const rs = disambiguateSchools(rows).filter((r) => r.period === prev || r.period === cur);
   const isCur = (r: Row) => (r.period === cur ? 1 : 0);
   const baseMean = mean(rs.map((r) => r.baselinePct));
+
+  const hasBaseline = rs.every((r) => !r.baselineMissing && Number.isFinite(r.baselinePct)) && variance(rs.map((r) => r.baselinePct)) > 1e-9;
 
   const sectionNames = [...groupBy(rs, (r) => r.section).entries()]
     .map(([name, g]) => ({ name, order: mean(g.map((r) => r.sectionOrder)) }))
@@ -94,7 +97,7 @@ export function analyzeDynamics(rows: Row[]): Dynamics | null {
   // Общая динамика: балл ~ стартовый уровень + год + разделы, ошибки кластерные по школам
   const k = sectionNames.length;
   const X = rs.map((r) => {
-    const row = [1, r.baselinePct - baseMean, isCur(r)];
+    const row = [1, ...(hasBaseline ? [r.baselinePct - baseMean] : []), isCur(r)];
     for (let j = 1; j < k; j++) row.push(secIndex.get(r.section) === j ? 1 : 0);
     return row;
   });
@@ -106,9 +109,9 @@ export function analyzeDynamics(rows: Row[]): Dynamics | null {
   const overall = {
     meanPrev: mean(rs.filter((r) => !isCur(r)).map(pctOf)),
     meanCur: mean(rs.filter(isCur).map(pctOf)),
-    change: interval(fitAll.beta[2], fitAll.se[2]),
+    change: interval(fitAll.beta[hasBaseline ? 2 : 1], fitAll.se[hasBaseline ? 2 : 1]),
   };
-  const bBase = fitAll.beta[1];
+  const bBase = hasBaseline && fitAll.ok ? fitAll.beta[1] : 0;
   const adj = (r: Row) => pctOf(r) - bBase * (r.baselinePct - baseMean);
 
   const schoolsBySection = new Map<string, { school: string; delta: number; dh: number; nMin: number }[]>();
@@ -116,7 +119,7 @@ export function analyzeDynamics(rows: Row[]): Dynamics | null {
   const sections: DynSection[] = sectionNames.map(({ name, order }) => {
     const sr = rs.filter((r) => r.section === name);
     const fit = ols(
-      sr.map((r) => [1, r.baselinePct - baseMean, isCur(r)]),
+      sr.map((r) => [1, ...(hasBaseline ? [r.baselinePct - baseMean] : []), isCur(r)]),
       sr.map(pctOf),
       sr.map((r) => r.school),
     );
@@ -165,7 +168,7 @@ export function analyzeDynamics(rows: Row[]): Dynamics | null {
       order,
       meanPrev: mean(prevR.map(pctOf)),
       meanCur: mean(curR.map(pctOf)),
-      change: interval(fit.beta[2], fit.se[2]),
+      change: interval(fit.beta[hasBaseline ? 2 : 1], fit.se[hasBaseline ? 2 : 1]),
       hoursPrev: mean(prevR.map((r) => r.actualHours)),
       hoursCur: mean(curR.map((r) => r.actualHours)),
       nChanged: addedS.length + cutS.length,
@@ -180,7 +183,7 @@ export function analyzeDynamics(rows: Row[]): Dynamics | null {
   // Школы: средний по разделам выровненный результат ученика, год к году
   const schools: DynSchool[] = [];
   for (const [school, g] of groupBy(rs, (r) => r.school)) {
-    const studentAvg = (sel: Row[]) => [...groupBy(sel, (r) => r.studentId).values()].map((s) => mean(s.map(adj)));
+    const studentAvg = (sel: Row[]) => [...groupBy(sel, (r) => JSON.stringify([r.school, r.classId, r.studentId])).values()].map((s) => mean(s.map(adj)));
     const a = studentAvg(g.filter((r) => !isCur(r)));
     const b = studentAvg(g.filter(isCur));
     if (a.length < MIN_STUDENTS || b.length < MIN_STUDENTS) continue;
@@ -201,10 +204,11 @@ export function analyzeDynamics(rows: Row[]): Dynamics | null {
   schools.sort((x, y) => y.vsAll.est - x.vsAll.est);
 
   return {
+    hasBaseline,
     prev,
     cur,
-    nPrev: new Set(rs.filter((r) => !isCur(r)).map((r) => r.studentId)).size,
-    nCur: new Set(rs.filter(isCur).map((r) => r.studentId)).size,
+    nPrev: new Set(rs.filter((r) => !isCur(r)).map((r) => JSON.stringify([r.school, r.classId, r.studentId]))).size,
+    nCur: new Set(rs.filter(isCur).map((r) => JSON.stringify([r.school, r.classId, r.studentId]))).size,
     nSchools: schools.length,
     overall,
     sections,
@@ -236,5 +240,5 @@ export function verdict(s: DynSection, forecastPerHour: number | undefined): Ver
   if (!s.slope) return "no_data";
   if (!s.slope.significant || s.slope.est <= 0) return forecastPerHour !== undefined && forecastPerHour > 1 ? "not_confirmed" : "low_return";
   if (forecastPerHour === undefined) return "confirmed";
-  return s.slope.hi >= forecastPerHour * 0.6 ? "confirmed" : "weaker";
+  return s.slope.lo <= forecastPerHour && forecastPerHour <= s.slope.hi ? "confirmed" : "weaker";
 }

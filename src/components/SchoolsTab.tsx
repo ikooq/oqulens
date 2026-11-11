@@ -8,8 +8,8 @@ import { Badge, Card, Kpi, Note, Segmented } from "./ui";
 import { useFmt, useLang, useT } from "./lang";
 
 const FLAG_COLOR: Record<Flag, string> = { below: "#dc2626", above: "#0f8a6c", none: "#94a3b8" };
-const LANG_RU: Record<SchoolProfile["language"], string> = { каз: "казахский язык", рус: "русский язык", смеш: "два языка обучения" };
-const LANG_KK: Record<SchoolProfile["language"], string> = { каз: "қазақ тілі", рус: "орыс тілі", смеш: "екі оқыту тілі" };
+const LANG_RU: Record<SchoolProfile["language"], string> = { каз: "казахский язык", рус: "русский язык", смеш: "два языка обучения", неизвестно: "язык неизвестен" };
+const LANG_KK: Record<SchoolProfile["language"], string> = { каз: "қазақ тілі", рус: "орыс тілі", смеш: "екі оқыту тілі", неизвестно: "тілі белгісіз" };
 
 export function defaultSchool(a: Analysis): string | undefined {
   const ranked = a.schools.filter((p) => p.rank > 0);
@@ -207,7 +207,7 @@ function SchoolCard({ a, p }: { a: Analysis; p: SchoolProfile }) {
           <div>
             <h2 className="text-[20px] font-extrabold text-slate-900">{p.school}</h2>
             <p className="mt-0.5 text-[13px] text-muted">
-              {p.district} · {p.urban ? t("город", "қала") : t("село", "ауыл")} · {(lang === "kk" ? LANG_KK : LANG_RU)[p.language]} · {p.textbooks.join(", ")} ·{" "}
+              {p.district} · {p.urban === null ? t("местность неизвестна", "елді мекен белгісіз") : p.urban ? t("город", "қала") : t("село", "ауыл")} · {(lang === "kk" ? LANG_KK : LANG_RU)[p.language]} · {p.textbooks.join(", ")} ·{" "}
               {f.nStudents(p.nStudents)} · {f.nClasses(p.nClasses)}
             </p>
           </div>

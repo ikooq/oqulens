@@ -123,7 +123,7 @@ export function parseRecords(data: Record<string, string>[], fields: string[], n
       noId++;
       continue;
     }
-    const key = `${get(r, "studentId")}\u0000${section}\u0000${get(r, "period")}`;
+    const key = JSON.stringify([get(r, "school"), get(r, "classId"), get(r, "studentId"), section, get(r, "period")]);
     if (seen.has(key)) duplicates++;
     seen.add(key);
     if (score < 0 || score > maxScore) clamped++;
@@ -140,8 +140,8 @@ export function parseRecords(data: Record<string, string>[], fields: string[], n
     rows.push({
       district: get(r, "district") || "—",
       school: get(r, "school"),
-      locality: loc.startsWith("сел") || loc.startsWith("rur") || loc.startsWith("аул") || loc.startsWith("ауыл") ? "село" : "город",
-      language: lng.startsWith("рус") || lng.startsWith("ru") || lng.startsWith("орыс") ? "рус" : "каз",
+      locality: loc.startsWith("сел") || loc.startsWith("rur") || loc.startsWith("аул") || loc.startsWith("ауыл") ? "село" : loc.startsWith("гор") || loc.startsWith("urb") || loc.startsWith("қала") ? "город" : "неизвестно",
+      language: lng.startsWith("рус") || lng.startsWith("ru") || lng.startsWith("орыс") ? "рус" : lng.startsWith("каз") || lng.startsWith("қаз") || lng.startsWith("kk") ? "каз" : "неизвестно",
       classId: get(r, "classId"),
       studentId: get(r, "studentId"),
       textbook: get(r, "textbook") || "—",
@@ -152,6 +152,7 @@ export function parseRecords(data: Record<string, string>[], fields: string[], n
       score: Math.max(0, Math.min(score, maxScore)),
       maxScore,
       baselinePct: Number.isFinite(baseline) ? baseline : 50,
+      ...(!Number.isFinite(baseline) ? { baselineMissing: true } : {}),
       ...(period ? { period } : {}),
     });
   }
@@ -200,10 +201,16 @@ function buildQuality(
   const t = (ru: string, kk: string) => tr(lang, ru, kk);
   const f = makeFmt(lang);
   const checks: DataQuality["checks"] = [];
+  const unknownLocality = rows.filter((r) => r.locality === "неизвестно").length;
+  const unknownLanguage = rows.filter((r) => r.language === "неизвестно").length;
+  if (unknownLocality || unknownLanguage) checks.push({
+    level: "warn",
+    text: t(`Неизвестная местность: ${unknownLocality} строк; неизвестный язык: ${unknownLanguage} строк. Данные сохранены как неизвестные, сравнения ограничены.`, `Белгісіз елді мекен: ${unknownLocality} жол; белгісіз тіл: ${unknownLanguage} жол. Деректер белгісіз ретінде сақталды, салыстырулар шектеулі.`),
+  });
   const n = (x: number) => x.toLocaleString("ru-RU");
-  const students = new Set(rows.map((r) => r.studentId)).size;
+  const students = new Set(rows.map((r) => JSON.stringify([r.school, r.classId, r.studentId]))).size;
   const schools = new Set(rows.map((r) => r.school));
-  const classes = new Set(rows.map((r) => r.classId)).size;
+  const classes = new Set(rows.map((r) => JSON.stringify([r.school, r.classId]))).size;
   const sections = new Set(rows.map((r) => r.section)).size;
   const textbooks = new Set(rows.map((r) => r.textbook)).size;
   const counts = `${f.nStudents(students)}, ${f.nSchools(schools.size)}, ${f.nClasses(classes)}, ${f.nSections(sections)}`;
@@ -249,8 +256,8 @@ function buildQuality(
     checks.push({
       level: "warn",
       text: t(
-        `Результатов без стартового уровня: ${n(c.baselineMissing)}. Для них подставлено 50%.`,
-        `Бастапқы деңгейі жоқ нәтижелер: ${n(c.baselineMissing)}. Оларға 50% қойылды.`,
+        `Результатов без стартового уровня: ${n(c.baselineMissing)}. Поправка на стартовый уровень отключена для всего анализа.`,
+        `Бастапқы деңгейі жоқ нәтижелер: ${n(c.baselineMissing)}. Бүкіл талдауда бастапқы деңгейге түзету өшірілді.`,
       ),
     });
   if (!c.colOf.has("actualHours"))
@@ -300,9 +307,9 @@ export function mergeDatasets(parts: { file: string; dataset: Dataset }[], lang:
   const t = (ru: string, kk: string) => tr(lang, ru, kk);
   const rows = parts.flatMap((p) => p.dataset.rows);
   const f = makeFmt(lang);
-  const students = new Set(rows.map((r) => r.studentId)).size;
+  const students = new Set(rows.map((r) => JSON.stringify([r.school, r.classId, r.studentId]))).size;
   const schools = new Set(rows.map((r) => r.school)).size;
-  const classes = new Set(rows.map((r) => r.classId)).size;
+  const classes = new Set(rows.map((r) => JSON.stringify([r.school, r.classId]))).size;
   const checks: DataQuality["checks"] = [
     {
       level: "ok",
@@ -312,6 +319,14 @@ export function mergeDatasets(parts: { file: string; dataset: Dataset }[], lang:
       ),
     },
   ];
+  const seenKeys = new Set<string>();
+  let duplicateCount = 0;
+  for (const r of rows) {
+    const key = JSON.stringify([r.district, r.school, r.classId, r.studentId, r.section, r.period ?? ""]);
+    if (seenKeys.has(key)) duplicateCount++;
+    seenKeys.add(key);
+  }
+  if (duplicateCount) checks.push({ level: "warn", text: t(`Повторов между файлами: ${duplicateCount}. Для каждого ученика и раздела используется последняя запись; проверьте файлы.`, `Файлдар арасындағы қайталану: ${duplicateCount}. Әр оқушы мен бөлім бойынша соңғы жазба қолданылады; файлдарды тексеріңіз.`) });
   for (const p of parts)
     for (const c of p.dataset.quality?.checks ?? [])
       if (c.level !== "ok" || p === parts[0]) checks.push({ level: c.level, text: `«${p.file}»: ${c.text}` });
@@ -329,8 +344,8 @@ export function mergeDatasets(parts: { file: string; dataset: Dataset }[], lang:
 /** Таблица для Excel: заголовки на языке интерфейса (их понимает и импорт). */
 export function toSheetRows(rows: Row[], lang: Lang = "ru"): (string | number)[][] {
   const kk = lang === "kk";
-  const val = (r: Row, k: keyof Row) =>
-    kk && k === "locality" ? (r.locality === "село" ? "ауыл" : "қала") : kk && k === "language" ? (r.language === "рус" ? "орыс" : "қаз") : (r[k] ?? "");
+  const val = (r: Row, k: keyof Row) => k === "baselinePct" && r.baselineMissing ? "" :
+    kk && k === "locality" ? (r.locality === "село" ? "ауыл" : r.locality === "город" ? "қала" : "белгісіз") : kk && k === "language" ? (r.language === "рус" ? "орыс" : r.language === "каз" ? "қаз" : "белгісіз") : (typeof r[k] === "boolean" ? String(r[k]) : r[k] ?? "");
   return [COLUMNS.map((c) => (kk ? c.kk : c.ru)), ...rows.map((r) => COLUMNS.map((c) => val(r, c.key)))];
 }
 
@@ -346,7 +361,7 @@ export function columnsHelpRows(lang: Lang = "ru"): string[][] {
 export function toCsv(rows: Row[]): string {
   return Papa.unparse({
     fields: COLUMNS.map((c) => c.csv),
-    data: rows.map((r) => COLUMNS.map((c) => r[c.key] ?? "")),
+    data: rows.map((r) => COLUMNS.map((c) => c.key === "baselinePct" && r.baselineMissing ? "" : r[c.key] ?? "")),
   });
 }
 

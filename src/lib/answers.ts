@@ -54,14 +54,14 @@ export function answer(
       const s = h.section;
       const fc = h.forecast !== undefined ? pp(h.forecast) : "—";
       if (h.verdict === "confirmed" && s.slope)
-        lines.push(t(`**${q(s.name)}**: каждый добавленный час дал ${pp(s.slope.est)} (прогноз модели ${fc}) — подтвердилось.`, `**${q(s.name)}**: әр қосылған сағат ${pp(s.slope.est)} берді (модель болжамы ${fc}) — расталды.`));
+        lines.push(t(`**${q(s.name)}**: связь с дополнительным часом оценивается в ${pp(s.slope.est)} (оценка модели ${fc}); необходима независимая проверка.`, `**${q(s.name)}**: қосымша сағатпен байланыс ${pp(s.slope.est)} (модель бағасы ${fc}); тәуелсіз тексеру қажет.`));
       else if (h.verdict === "weaker" && s.slope)
-        lines.push(t(`**${q(s.name)}**: эффект есть, но слабее прогноза (${pp(s.slope.est)} против ${fc}).`, `**${q(s.name)}**: әсер бар, бірақ болжамнан әлсіз (${pp(s.slope.est)}, болжам ${fc}).`));
+        lines.push(t(`**${q(s.name)}**: оценка отличается от прогноза (${pp(s.slope.est)} против ${fc}).`, `**${q(s.name)}**: баға болжамнан өзгеше (${pp(s.slope.est)}, болжам ${fc}).`));
       else lines.push(t(`**${q(s.name)}**: ожидаемый эффект часов (${fc}) не подтвердился.`, `**${q(s.name)}**: күтілген сағат әсері (${fc}) расталмады.`));
     }
     const low = hs.filter((x) => x.verdict === "low_return").map((x) => q(x.section.name));
     if (low.length)
-      lines.push(t(`${low.join(", ")}: часы почти не влияют на результат — снимать их отсюда безопасно.`, `${low.join(", ")}: сағат нәтижеге аз әсер етеді — бұл жерден сағатты алу қауіпсіз.`));
+      lines.push(t(`${low.join(", ")}: недостаточно оснований заключать, что сокращение часов безопасно.`, `${low.join(", ")}: сағатты қысқарту қауіпсіз деген қорытындыға дерек жеткіліксіз.`));
     const best = hs.find((x) => x.section.did?.significant && x.section.added && x.section.same)?.section;
     if (best?.did && best.added && best.same)
       lines.push(

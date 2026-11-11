@@ -34,7 +34,7 @@ export function dynamicsSummary(a: Analysis, d: Dynamics) {
       schools_added_2h: s.added ? { n: s.added.n, change_pp: r1(s.added.delta) } : null,
       schools_unchanged: s.same ? { n: s.same.n, change_pp: r1(s.same.delta) } : null,
     })),
-    verdict_legend: "confirmed — эффект часов подтвердился; weaker — слабее прогноза; not_confirmed — не подтвердился; low_return — часы почти не влияют; no_data — часы не менялись",
+    verdict_legend: "confirmed — оценки совместимы; weaker — оценки различаются; not_confirmed — связь не выявлена; low_return — недостаточно оснований для вывода; no_data — данных недостаточно",
     schools_rose: d.schools.filter((s) => s.flag === "up").slice(0, 5).map((s) => ({ school: s.school, district: s.district, vs_all_pp: r1(s.vsAll.est) })),
     schools_fell: d.schools.filter((s) => s.flag === "down").reverse().slice(0, 5).map((s) => ({ school: s.school, district: s.district, vs_all_pp: r1(s.vsAll.est) })),
   };
