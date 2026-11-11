@@ -31,17 +31,26 @@ export class LlmError extends Error {
     public code: "no_key" | "auth" | "rate_limit" | "refusal" | "empty" | "api",
     message: string,
     public status?: number,
+    /** Короткое объяснение от провайдера — для диагностики (без ключа) */
+    public detail?: string,
   ) {
     super(message);
   }
 }
+
+/** Ключ из переменной окружения: без пробелов, переносов строк и кавычек по краям. */
+const cleanKey = (v: string | undefined) => (v ?? "").trim().replace(/^["']+|["']+$/g, "").trim();
+
+/** Текст ошибки провайдера без чего-либо похожего на ключ. */
+const safeDetail = (status: string | undefined, msg: string | undefined) =>
+  `${status ?? ""}${status && msg ? ": " : ""}${msg ?? ""}`.replace(/AIza[0-9A-Za-z_\-]{10,}/g, "[key]").slice(0, 220);
 
 const GEMINI_DEFAULT = "gemini-3.8-flash";
 const GEMINI_FALLBACK = "gemini-3.5-flash-lite";
 
 export function activeProvider(): Provider | null {
   const hasClaude = !!(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
-  const hasGemini = !!(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY);
+  const hasGemini = !!(cleanKey(process.env.GEMINI_API_KEY) || cleanKey(process.env.GOOGLE_API_KEY));
   const forced = process.env.AI_PROVIDER;
   if (forced === "gemini" && hasGemini) return "gemini";
   if (forced === "claude" && hasClaude) return "claude";
@@ -103,7 +112,7 @@ type GeminiResponse = {
 };
 
 async function gemini(req: LlmRequest): Promise<LlmResult> {
-  const key = (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY)!;
+  const key = cleanKey(process.env.GEMINI_API_KEY) || cleanKey(process.env.GOOGLE_API_KEY);
   const primary = process.env.GEMINI_MODEL || GEMINI_DEFAULT;
   const models = [...new Set([primary, GEMINI_FALLBACK])];
   const body = {
@@ -130,10 +139,13 @@ async function gemini(req: LlmRequest): Promise<LlmResult> {
     const data = (await res.json().catch(() => ({}))) as GeminiResponse;
     if (!res.ok) {
       const msg = data.error?.message ?? "";
-      if (res.status === 400 && /api key/i.test(msg)) throw new LlmError("auth", "invalid key", 400);
-      if (res.status === 401 || res.status === 403) throw new LlmError("auth", "invalid key", res.status);
+      const detail = safeDetail(data.error?.status, msg);
+      console.error(`[gemini] ${model}: HTTP ${res.status} ${detail}`);
+      if (res.status === 400 && /api key/i.test(msg)) throw new LlmError("auth", "invalid key", 400, detail);
+      if (res.status === 401 || res.status === 403) throw new LlmError("auth", "invalid key", res.status, detail);
       // Лимит бесплатного тарифа, перегрузка или модель недоступна — пробуем запасную модель
-      lastError = res.status === 429 ? new LlmError("rate_limit", "rate limit", 429) : new LlmError("api", msg || "api error", res.status);
+      lastError =
+        res.status === 429 ? new LlmError("rate_limit", "rate limit", 429, detail) : new LlmError("api", msg || "api error", res.status, detail);
       if ([404, 429, 500, 503].includes(res.status)) continue;
       throw lastError;
     }

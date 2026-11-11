@@ -17,7 +17,15 @@ export function errorResponse(error: unknown, lang: "ru" | "kk") {
         { status: 503 },
       );
     case "auth":
-      return Response.json({ error: "auth", message: t("Неверный ключ ИИ на сервере.", "Сервердегі ИИ кілті қате.") }, { status: 502 });
+      return Response.json(
+        {
+          error: "auth",
+          message:
+            t("Ключ ИИ на сервере не принят.", "Сервердегі ИИ кілті қабылданбады.") + (e.detail ? ` (${e.detail})` : ""),
+          detail: e.detail,
+        },
+        { status: 502 },
+      );
     case "rate_limit":
       return Response.json(
         {
@@ -35,7 +43,13 @@ export function errorResponse(error: unknown, lang: "ru" | "kk") {
       return Response.json({ error: "empty", message: t("Модель вернула пустой ответ.", "Модель бос жауап қайтарды.") }, { status: 502 });
     default:
       return Response.json(
-        { error: "api", message: t(`Ошибка ИИ-сервиса${e.status ? ` (${e.status})` : ""}.`, `ИИ-сервис қатесі${e.status ? ` (${e.status})` : ""}.`) },
+        {
+          error: "api",
+          message:
+            t(`Ошибка ИИ-сервиса${e.status ? ` (${e.status})` : ""}.`, `ИИ-сервис қатесі${e.status ? ` (${e.status})` : ""}.`) +
+            (e.detail ? ` ${e.detail}` : ""),
+          detail: e.detail,
+        },
         { status: 502 },
       );
   }
